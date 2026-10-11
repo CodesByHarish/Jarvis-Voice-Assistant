@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Jarvis Git Command Execution Module
-Reads the validated action from last_intent.json and executes the CLI command inside TARGET_REPO_PATH.
-Exits with the process return code (0 for success, non-zero for failure).
+Executes validated CLI actions inside the project root directory.
+Guarantees execution in the project directory regardless of caller CWD.
 """
 
 import sys
@@ -13,8 +13,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 def main():
-    intent_file = sys.argv[1] if len(sys.argv) > 1 else "last_intent.json"
+    intent_file = sys.argv[1] if len(sys.argv) > 1 else os.path.join(PROJECT_ROOT, "last_intent.json")
     if not os.path.exists(intent_file):
         print(f"[execute_git.py] Error: {intent_file} does not exist.", file=sys.stderr)
         sys.exit(1)
@@ -27,15 +29,16 @@ def main():
         sys.exit(1)
 
     command = data.get("command", "git status").strip()
-    target_repo = os.getenv("TARGET_REPO_PATH", ".").strip()
-
-    if not command:
-        command = "git status"
+    target_repo = os.getenv("TARGET_REPO_PATH", PROJECT_ROOT).strip()
+    if target_repo == ".":
+        target_repo = PROJECT_ROOT
+    else:
+        target_repo = os.path.abspath(target_repo)
 
     print(f"[Jarvis Executing]: '{command}' in '{target_repo}'")
     
-    # Execute the command in the target repository directory
     try:
+        # Run inside target_repo
         proc = subprocess.run(command, shell=True, cwd=target_repo)
         sys.exit(proc.returncode)
     except Exception as e:

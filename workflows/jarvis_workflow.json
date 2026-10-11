@@ -21,7 +21,7 @@
     },
     {
       "parameters": {
-        "command": "python transcribe.py recorded_command.wav"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python transcribe.py recorded_command.wav"
       },
       "id": "transcribe-cmd",
       "name": "Transcribe Audio",
@@ -35,7 +35,7 @@
     },
     {
       "parameters": {
-        "command": "python intent_router.py"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python intent_router.py"
       },
       "id": "intent-router-cmd",
       "name": "Intent Router",
@@ -49,7 +49,7 @@
     },
     {
       "parameters": {
-        "command": "python execute_git.py"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python execute_git.py"
       },
       "id": "git-action-cmd",
       "name": "Execute Git Command",
@@ -63,7 +63,7 @@
     },
     {
       "parameters": {
-        "command": "python speak.py \"Completed the task, sir.\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"Completed the task, sir.\""
       },
       "id": "speak-success-cmd",
       "name": "Spoken Confirmation (Success)",
@@ -76,7 +76,7 @@
     },
     {
       "parameters": {
-        "command": "python speak.py \"Task failed, sir.\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"Task failed, sir.\""
       },
       "id": "speak-error-cmd",
       "name": "Spoken Confirmation (Error)",
@@ -159,7 +159,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "jarvis-git-v4",
+  "versionId": "jarvis-git-v5",
   "id": "jarvis-git-workflow",
   "tags": []
 }

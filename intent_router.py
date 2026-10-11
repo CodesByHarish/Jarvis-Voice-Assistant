@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Jarvis Dual-LLM Router & Intent Parser (Production Hardened)
+Jarvis Dual-LLM Router & Intent Parser
 Features:
-- Accepts transcript via CLI argument or reads from last_transcript.txt.
-- Immune to quoting and pipe deadlock issues.
-- Comprehensive JSON extraction stripping code blocks, backticks, and extra whitespace.
-- Saves validated output to last_intent.json for downstream execution safety.
+- Forces explicit project root working directory switch on ALL generated commands.
+- Repositories creation fallback: initializes Git, commits, and creates public GitHub repo if push fails.
+- Safe argument passing with fallback to last_transcript.txt.
 - Primary: Groq Cloud API | Fallback: Local Ollama (qwen2.5-coder:7b).
 """
 
@@ -21,64 +20,79 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
-TRANSCRIPT_CACHE_FILE = "last_transcript.txt"
-INTENT_CACHE_FILE = "last_intent.json"
 
-SYSTEM_PROMPT = """You are the Jarvis Git Automation Engine.
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__)).replace("/", "\\")
+TRANSCRIPT_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_transcript.txt")
+INTENT_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_intent.json")
+
+SYSTEM_PROMPT = f"""You are the Jarvis Git Automation Engine.
 Your job is to translate voice transcripts into deterministic, executable Git and GitHub CLI commands.
 You must respond with ONLY a valid, raw JSON object matching the exact schema below.
 DO NOT include markdown backticks (```json), explanations, markdown formatting, or preamble.
 
 Strict Output Schema:
-{
+{{
   "action": "stage_commit_push" | "create_pr" | "checkout_branch" | "status" | "unknown",
   "branch": "<branch_name or empty string>",
   "commit_message": "<commit_message or empty string>",
   "pr_title": "<pr_title or empty string>",
   "command": "<raw_cli_command_to_run>"
-}
+}}
+
+IMPORTANT WORKING DIRECTORY RULE:
+All CLI commands MUST explicitly prepend: cd "{PROJECT_ROOT}" && ...
 
 Command Mapping Guidelines:
-1. "commit and push", "push changes with message <msg>", "commit all files as <msg>":
+1. "push", "commit and push", "create repo", "push to github", "commit files as <msg>":
    - action: "stage_commit_push"
-   - command: git add . && git commit -m "<msg>" && git push
+   - command: cd "{PROJECT_ROOT}" && git init && git add . && git commit -m "<msg>" && (git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)
 2. "status", "check git status", "show changes", "what is the status":
    - action: "status"
-   - command: git status
+   - command: cd "{PROJECT_ROOT}" && git status
 3. "checkout <branch>", "switch to branch <branch>":
    - action: "checkout_branch"
-   - command: git checkout <branch>
+   - command: cd "{PROJECT_ROOT}" && git checkout <branch>
 4. "create new branch <branch>", "make branch <branch>":
    - action: "checkout_branch"
-   - command: git checkout -b <branch>
+   - command: cd "{PROJECT_ROOT}" && git checkout -b <branch>
 5. "create pull request titled <title>", "open pr <title>":
    - action: "create_pr"
-   - command: gh pr create --title "<title>" --body "Automated PR created by Jarvis"
+   - command: cd "{PROJECT_ROOT}" && gh pr create --title "<title>" --body "Automated PR created by Jarvis"
 6. If the request cannot be determined:
    - action: "unknown"
-   - command: git status
+   - command: cd "{PROJECT_ROOT}" && git status
 """
 
-def build_safe_command(action: str, branch: str, commit_msg: str, pr_title: str, raw_cmd: str) -> str:
-    """Ensures deterministic, properly quoted shell commands."""
-    if action == "stage_commit_push":
+def build_safe_command(action: str, branch: str, commit_msg: str, pr_title: str, raw_cmd: str, transcript: str = "") -> str:
+    """Ensures deterministic, properly quoted shell commands with explicit project root cd."""
+    cd_prefix = f'cd "{PROJECT_ROOT}"'
+    t = transcript.lower()
+
+    if action == "stage_commit_push" or any(w in t for w in ["push", "commit", "repo", "github"]):
         msg = commit_msg.strip() or "Automated update via Jarvis"
         safe_msg = msg.replace('"', '\\"')
-        return f'git add . && git commit -m "{safe_msg}" && git push'
+        return (
+            f'{cd_prefix} && git init && git add . && '
+            f'(git commit -m "{safe_msg}" || echo "No changes to commit") && '
+            f'(git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)'
+        )
     elif action == "create_pr":
         title = pr_title.strip() or "Automated Pull Request via Jarvis"
         safe_title = title.replace('"', '\\"')
-        return f'gh pr create --title "{safe_title}" --body "Automated PR created by Jarvis"'
+        return f'{cd_prefix} && gh pr create --title "{safe_title}" --body "Automated PR created by Jarvis"'
     elif action == "checkout_branch" and branch:
         clean_branch = re.sub(r"[^a-zA-Z0-9_\-\./]", "", branch.strip())
-        return f"git checkout {clean_branch}"
+        return f'{cd_prefix} && git checkout {clean_branch}'
     elif action == "status":
-        return "git status"
+        return f'{cd_prefix} && git status'
     elif raw_cmd and raw_cmd.strip():
-        return raw_cmd.strip()
-    return "git status"
+        clean_cmd = raw_cmd.strip()
+        if not clean_cmd.startswith("cd "):
+            return f'{cd_prefix} && {clean_cmd}'
+        return clean_cmd
+    return f'{cd_prefix} && git status'
 
-def extract_json(raw_text: str) -> dict:
+def extract_json(raw_text: str, transcript: str = "") -> dict:
     """Robustly cleans and extracts valid JSON dictionary from raw model text."""
     clean = raw_text.strip()
     clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.MULTILINE)
@@ -104,7 +118,7 @@ def extract_json(raw_text: str) -> dict:
             "commit_message": commit_match.group(1) if commit_match else "",
             "branch": branch_match.group(1) if branch_match else "",
             "pr_title": pr_match.group(1) if pr_match else "",
-            "command": cmd_match.group(1) if cmd_match else "git status",
+            "command": cmd_match.group(1) if cmd_match else f'cd "{PROJECT_ROOT}" && git status',
         }
 
     action = str(data.get("action", "unknown")).strip()
@@ -113,7 +127,7 @@ def extract_json(raw_text: str) -> dict:
     pr_title = str(data.get("pr_title", "")).strip()
     raw_cmd = str(data.get("command", "")).strip()
 
-    safe_cmd = build_safe_command(action, branch, commit_msg, pr_title, raw_cmd)
+    safe_cmd = build_safe_command(action, branch, commit_msg, pr_title, raw_cmd, transcript)
 
     return {
         "action": action,
@@ -160,7 +174,7 @@ def call_groq(transcript: str) -> dict:
             )
             if resp.status_code == 200:
                 content = resp.json()["choices"][0]["message"]["content"]
-                return extract_json(content)
+                return extract_json(content, transcript)
             elif resp.status_code == 404:
                 continue
             else:
@@ -191,7 +205,7 @@ def call_ollama(transcript: str) -> dict:
         raise RuntimeError(f"Ollama HTTP {resp.status_code}: {resp.text}")
 
     content = resp.json().get("message", {}).get("content", "")
-    return extract_json(content)
+    return extract_json(content, transcript)
 
 def route_intent(transcript: str) -> dict:
     """Dispatches transcript to Groq, falling back to Ollama or heuristic fallback."""
@@ -202,7 +216,7 @@ def route_intent(transcript: str) -> dict:
             "branch": "",
             "commit_message": "",
             "pr_title": "",
-            "command": "git status",
+            "command": f'cd "{PROJECT_ROOT}" && git status',
         }
 
     # 1. Primary: Groq Cloud API
@@ -219,25 +233,33 @@ def route_intent(transcript: str) -> dict:
 
     # 3. Deterministic Safety Heuristic
     t = cleaned.lower()
-    if "status" in t:
-        return {"action": "status", "branch": "", "commit_message": "", "pr_title": "", "command": "git status"}
-    if "push" in t or "commit" in t:
+    if any(w in t for w in ["push", "commit", "repo", "github"]):
         return {
             "action": "stage_commit_push",
             "branch": "",
             "commit_message": "Automated update via Jarvis",
             "pr_title": "",
-            "command": 'git add . && git commit -m "Automated update via Jarvis" && git push',
+            "command": (
+                f'cd "{PROJECT_ROOT}" && git init && git add . && '
+                f'(git commit -m "Automated update via Jarvis" || echo "No changes to commit") && '
+                f'(git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)'
+            ),
         }
-    return {"action": "unknown", "branch": "", "commit_message": "", "pr_title": "", "command": "git status"}
+    return {
+        "action": "status",
+        "branch": "",
+        "commit_message": "",
+        "pr_title": "",
+        "command": f'cd "{PROJECT_ROOT}" && git status',
+    }
 
 def main():
     transcript = ""
-    # 1. Check CLI arguments
+    # 1. Read CLI argument if passed
     if len(sys.argv) > 1:
         transcript = " ".join(sys.argv[1:]).strip()
 
-    # 2. If no argument provided, read cached transcript file
+    # 2. Read from last_transcript.txt if argument is empty
     if not transcript and os.path.exists(TRANSCRIPT_CACHE_FILE):
         try:
             with open(TRANSCRIPT_CACHE_FILE, "r", encoding="utf-8") as f:
@@ -248,23 +270,23 @@ def main():
     try:
         result = route_intent(transcript)
     except Exception as e:
-        print(f"[intent_router.py] Recovered from exception: {e}", file=sys.stderr)
+        print(f"[intent_router.py] Exception recovered: {e}", file=sys.stderr)
         result = {
-            "action": "unknown",
+            "action": "status",
             "branch": "",
             "commit_message": "",
             "pr_title": "",
-            "command": "git status",
+            "command": f'cd "{PROJECT_ROOT}" && git status',
         }
 
-    # Cache output JSON to file for resilient pipeline access
+    # Save intent JSON
     try:
         with open(INTENT_CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2)
     except Exception as e:
         print(f"[intent_router.py] Warning caching intent: {e}", file=sys.stderr)
 
-    # Output pure JSON to stdout
+    # Print strict JSON
     print(json.dumps(result, indent=2))
     sys.exit(0)
 
