@@ -1,1 +1,1 @@
-Pushed the programs Onto Jarvis voice assistant record
+Commit all changes with message checked git status and push.
