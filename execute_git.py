@@ -2,7 +2,8 @@
 """
 Jarvis Git Command Execution Module
 Executes validated CLI actions inside the project root directory.
-Guarantees execution in the project directory regardless of caller CWD.
+Guarantees execution in the project directory regardless of caller CWD,
+and ensures GitHub CLI (C:\Program Files\GitHub CLI) is in PATH.
 """
 
 import sys
@@ -14,6 +15,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# Ensure GitHub CLI and Git are in PATH for non-interactive shells
+GH_PATH = r"C:\Program Files\GitHub CLI"
+if os.path.exists(GH_PATH) and GH_PATH not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = GH_PATH + os.pathsep + os.environ.get("PATH", "")
 
 def main():
     intent_file = sys.argv[1] if len(sys.argv) > 1 else os.path.join(PROJECT_ROOT, "last_intent.json")
@@ -38,8 +44,7 @@ def main():
     print(f"[Jarvis Executing]: '{command}' in '{target_repo}'")
     
     try:
-        # Run inside target_repo
-        proc = subprocess.run(command, shell=True, cwd=target_repo)
+        proc = subprocess.run(command, shell=True, cwd=target_repo, env=os.environ)
         sys.exit(proc.returncode)
     except Exception as e:
         print(f"[execute_git.py] Execution error: {e}", file=sys.stderr)

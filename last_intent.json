@@ -1,7 +1,7 @@
 {
-  "action": "stage_commit_push",
+  "action": "unknown",
   "branch": "",
-  "commit_message": "Push all code and create repository",
+  "commit_message": "",
   "pr_title": "",
-  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"Push all code and create repository\" || echo \"No changes to commit\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)"
+  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"Automated update via Jarvis\" || echo \"No changes to commit\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)"
 }
