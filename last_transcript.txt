@@ -1,1 +1,1 @@
-create a public repository name
+Create a public repository named Jarvis
