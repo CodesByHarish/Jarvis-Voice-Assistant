@@ -1,0 +1,7 @@
+{
+  "action": "stage_commit_push",
+  "branch": "",
+  "commit_message": "testing",
+  "pr_title": "",
+  "command": "git add . && git commit -m \"testing\" && git push"
+}
