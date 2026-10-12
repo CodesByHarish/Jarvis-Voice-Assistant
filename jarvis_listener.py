@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Jarvis Zero-Latency Real-Time Conversational Voice Listener
+Jarvis Zero-Latency Conversational Voice Listener
 Features:
-- Instant openWakeWord detection (Threshold: 0.20).
-- Single, non-blocking wake acknowledgment: "On it, sir.".
+- Instant 0ms local wake-up acknowledgment: plays pre-rendered `on_it.mp3` directly via pygame.mixer.
+- Real-time openWakeWord detection (Threshold: 0.20).
 - Ultra-responsive Silero VAD boundary detection with 350ms silence cutoff.
-- Zero duplicate speech triggers prior to webhook dispatch.
+- No network delay or subprocess spawn lag for wake-up confirmation.
 - Direct multipart HTTP POST dispatch to n8n webhook.
 """
 
@@ -13,11 +13,14 @@ import os
 import sys
 import time
 import wave
-import subprocess
 import requests
 import numpy as np
 import pyaudio
+import pygame
 from dotenv import load_dotenv
+
+# Suppress Pygame banner
+os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
 # Load environment configuration
 load_dotenv()
@@ -25,6 +28,7 @@ N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "http://localhost:5678/webhook/ja
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_AUDIO_FILE = os.path.join(PROJECT_ROOT, "recorded_command.wav")
+ON_IT_AUDIO = os.path.join(PROJECT_ROOT, "on_it.mp3")
 
 # Audio & Wake Word Parameters
 THRESHOLD = 0.20
@@ -33,29 +37,26 @@ CHUNK = 1280  # 80ms chunks
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 
-# Ultra-Low Latency VAD Parameters
-SILENCE_TIMEOUT_MS = 350  # 350ms silence cutoff for near-instant dispatch
+# VAD Parameters
+SILENCE_TIMEOUT_MS = 350  # 350ms silence cutoff
 MIN_SPEECH_CHUNKS = 3     # ~240ms minimum speech
 MAX_RECORDING_SEC = 10    # Safety cap
 VAD_SPEECH_THRESHOLD = 0.35
 RMS_ENERGY_THRESHOLD = 250.0
 
-def speak_acknowledgment():
-    """Immediately triggers single non-blocking wake acknowledgment: 'On it, sir.'"""
-    python_bin = sys.executable
-    speak_script = os.path.join(PROJECT_ROOT, "speak.py")
-    try:
-        subprocess.Popen(
-            [python_bin, speak_script, "On it, sir."],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            shell=False,
-        )
-    except Exception as e:
-        print(f"[jarvis_listener] Speech trigger notice: {e}", file=sys.stderr)
+def play_instant_wake_acknowledgment():
+    """Plays pre-rendered 'on_it.mp3' directly in the process for true 0ms response."""
+    if os.path.exists(ON_IT_AUDIO):
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init(frequency=24000, buffer=1024)
+            pygame.mixer.music.load(ON_IT_AUDIO)
+            pygame.mixer.music.play()
+        except Exception as e:
+            print(f"[Jarvis] Local wake playback notice: {e}", file=sys.stderr)
 
 def record_dynamic_command(stream: pyaudio.Stream, vad_engine) -> bytes:
-    """Dynamically records microphone audio, stopping within 350ms of silence."""
+    """Dynamically records microphone audio until 350ms of trailing silence."""
     print("[Jarvis] Streaming audio: dynamic VAD active (350ms silence cutoff)...")
     frames = []
     has_spoken = False
@@ -69,13 +70,11 @@ def record_dynamic_command(stream: pyaudio.Stream, vad_engine) -> bytes:
         frames.append(raw_data)
         audio_chunk = np.frombuffer(raw_data, dtype=np.int16)
 
-        # Silero VAD speech score
         try:
             speech_prob = vad_engine.predict(audio_chunk, frame_size=320)
         except Exception:
             speech_prob = 0.0
 
-        # RMS Energy calculation
         rms = np.sqrt(np.mean(audio_chunk.astype(np.float32) ** 2))
         is_speech = (speech_prob >= VAD_SPEECH_THRESHOLD) or (rms >= RMS_ENERGY_THRESHOLD)
 
@@ -124,11 +123,18 @@ def main():
     from openwakeword.vad import VAD
 
     print("==================================================")
-    print("   JARVIS ZERO-LATENCY CONVERSATIONAL LISTENER    ")
+    print("   JARVIS ULTRA-LOW LATENCY CONVERSATIONAL AGENT  ")
     print(f"   Wake Sensitivity   : Threshold {THRESHOLD} (High)")
+    print(f"   Local Acknowledgment: 0ms Pre-rendered Audio")
     print(f"   VAD Silence Cutoff : {SILENCE_TIMEOUT_MS}ms")
     print(f"   Webhook Target     : {N8N_WEBHOOK_URL}")
     print("==================================================")
+
+    # Initialize Pygame audio mixer pre-warmed for 24kHz
+    try:
+        pygame.mixer.init(frequency=24000, buffer=1024)
+    except Exception as e:
+        print(f"[Jarvis] Pygame mixer init note: {e}", file=sys.stderr)
 
     try:
         openwakeword.utils.download_models()
@@ -169,8 +175,8 @@ def main():
             if score >= THRESHOLD:
                 print(f"\n[Jarvis] Wake word detected! (Confidence: {score:.2f} >= {THRESHOLD})")
                 
-                # 1. Single non-blocking acknowledgment
-                speak_acknowledgment()
+                # 1. True 0ms instant local audio acknowledgment
+                play_instant_wake_acknowledgment()
 
                 # 2. Dynamic VAD Recording with 350ms cutoff
                 audio_bytes = record_dynamic_command(stream, vad_engine)
@@ -190,6 +196,7 @@ def main():
         stream.stop_stream()
         stream.close()
         audio.terminate()
+        pygame.mixer.quit()
 
 if __name__ == "__main__":
     main()

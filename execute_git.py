@@ -3,7 +3,7 @@
 Jarvis Git Command Execution Module
 Executes validated CLI actions inside the project root directory.
 Guarantees execution in the project directory regardless of caller CWD,
-and ensures GitHub CLI (C:\Program Files\GitHub CLI) is in PATH.
+auto-injects GitHub CLI path, and skips execution for general QA queries.
 """
 
 import sys
@@ -16,7 +16,7 @@ load_dotenv()
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# Ensure GitHub CLI and Git are in PATH for non-interactive shells
+# Ensure GitHub CLI and Git are in PATH
 GH_PATH = r"C:\Program Files\GitHub CLI"
 if os.path.exists(GH_PATH) and GH_PATH not in os.environ.get("PATH", ""):
     os.environ["PATH"] = GH_PATH + os.pathsep + os.environ.get("PATH", "")
@@ -33,6 +33,11 @@ def main():
     except Exception as e:
         print(f"[execute_git.py] Invalid intent JSON: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # Bypass if query is General QA
+    if data.get("type") == "general_qa":
+        print("[execute_git.py] General QA query detected; bypassing Git CLI.")
+        sys.exit(0)
 
     command = data.get("command", "git status").strip()
     target_repo = os.getenv("TARGET_REPO_PATH", PROJECT_ROOT).strip()

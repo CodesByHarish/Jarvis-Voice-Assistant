@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Jarvis Zero-Latency Neural AI Speech Synthesis Module
+Jarvis Ultra-Low Latency Neural AI Speech Engine
 Features:
-- Single cached audio file: reuses `temp_speech.mp3` to eliminate disk clutter.
-- 24kHz Pre-initialized pygame.mixer for sub-50ms instant playback.
-- Pure edge-tts (en-US-ChristopherNeural) with immediate lock release on completion.
-- Non-blocking sequential speech daemon ensures consecutive announcements never overlap.
-- CLI Flags: --file <path>, --intent-start, --intent-success, --intent-error, --direct.
+- Pre-generates and caches static audio clips: `on_it.mp3` ("On it, sir.") & `listening.mp3` ("Listening, sir.").
+- Pre-warmed 24kHz pygame.mixer for sub-50ms instant audio playback.
+- Dynamic edge-tts synthesis (en-US-ChristopherNeural) for custom conversational responses.
+- Supports direct audio playback of pre-rendered clips and queued dynamic announcements.
+- CLI Flags: --file <path>, --intent-start, --intent-response, --intent-success, --intent-error, --init.
 """
 
 import sys
@@ -16,7 +16,7 @@ import json
 import asyncio
 import subprocess
 
-# Suppress Pygame banner
+# Suppress Pygame welcome banner
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -25,10 +25,13 @@ LOCK_FILE = os.path.join(PROJECT_ROOT, "speech.lock")
 INTENT_FILE = os.path.join(PROJECT_ROOT, "last_intent.json")
 TEMP_SPEECH_FILE = os.path.join(PROJECT_ROOT, "temp_speech.mp3")
 
+ON_IT_AUDIO = os.path.join(PROJECT_ROOT, "on_it.mp3")
+LISTENING_AUDIO = os.path.join(PROJECT_ROOT, "listening.mp3")
+
 NEURAL_VOICE = "en-US-ChristopherNeural"
 
 async def generate_speech_audio(text: str, output_path: str):
-    """Renders speech to the single cached MP3 file using edge-tts."""
+    """Renders speech using edge-tts with the Christopher Neural voice."""
     import edge_tts
     communicator = edge_tts.Communicate(
         text=text,
@@ -38,20 +41,34 @@ async def generate_speech_audio(text: str, output_path: str):
     )
     await communicator.save(output_path)
 
-def play_and_release(audio_path: str):
-    """Plays audio via pre-initialized 24kHz pygame mixer and releases lock immediately."""
-    if not os.path.exists(audio_path):
+def ensure_static_audio():
+    """Pre-generates static local audio files for zero-latency instant playback."""
+    static_clips = {
+        ON_IT_AUDIO: "On it, sir.",
+        LISTENING_AUDIO: "Listening, sir.",
+    }
+    for path, phrase in static_clips.items():
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            try:
+                asyncio.run(generate_speech_audio(phrase, path))
+                print(f"[speak.py] Pre-rendered static clip: {os.path.basename(path)}")
+            except Exception as e:
+                print(f"[speak.py] Static clip generation warning ({os.path.basename(path)}): {e}", file=sys.stderr)
+
+def play_audio_file(audio_path: str):
+    """Plays audio via pre-warmed 24kHz pygame mixer and releases lock immediately."""
+    if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
         return
 
     import pygame
 
     try:
-        # Pre-initialize at native 24000Hz to eliminate resampling latency
-        pygame.mixer.init(frequency=24000, buffer=1024)
+        if not pygame.mixer.get_init():
+            pygame.mixer.init(frequency=24000, buffer=1024)
         pygame.mixer.music.load(audio_path)
         pygame.mixer.music.play()
         while pygame.mixer.music.get_busy():
-            time.sleep(0.03)
+            time.sleep(0.02)
         pygame.mixer.music.stop()
         if hasattr(pygame.mixer.music, "unload"):
             pygame.mixer.music.unload()
@@ -64,21 +81,31 @@ def play_and_release(audio_path: str):
             pass
 
 def speak_direct(text: str):
-    """Synthesizes and plays speech using the single temp_speech.mp3 cache."""
+    """Speaks text: plays pre-rendered MP3 if available, otherwise generates dynamic speech."""
     clean = text.strip()
     if not clean:
         return
 
-    print(f"[Jarvis Neural Voice]: {clean}")
+    # Check for direct audio file requests or known phrases
+    if clean.lower() in ["on it, sir.", "on it", "on_it.mp3"]:
+        if os.path.exists(ON_IT_AUDIO):
+            play_audio_file(ON_IT_AUDIO)
+            return
+    elif clean.lower() in ["listening, sir.", "listening", "listening.mp3"]:
+        if os.path.exists(LISTENING_AUDIO):
+            play_audio_file(LISTENING_AUDIO)
+            return
 
+    # Dynamic synthesis
+    print(f"[Jarvis Neural Voice]: {clean}")
     try:
         asyncio.run(generate_speech_audio(clean, TEMP_SPEECH_FILE))
-        play_and_release(TEMP_SPEECH_FILE)
+        play_audio_file(TEMP_SPEECH_FILE)
     except Exception as e:
         print(f"[speak.py] edge-tts error: {e}", file=sys.stderr)
 
 def run_worker():
-    """Background worker processing speech queue sequentially."""
+    """Background worker draining queued phrases sequentially."""
     try:
         with open(LOCK_FILE, "w", encoding="utf-8") as f:
             f.write(str(os.getpid()))
@@ -98,12 +125,12 @@ def run_worker():
                             for remaining in lines[1:]:
                                 f.write(remaining + "\n")
                 except Exception:
-                    time.sleep(0.04)
+                    time.sleep(0.03)
                     continue
 
             if phrase:
                 speak_direct(phrase)
-                time.sleep(0.08)
+                time.sleep(0.06)
             else:
                 break
     finally:
@@ -135,7 +162,7 @@ def is_worker_active() -> bool:
         return False
 
 def enqueue_phrase(text: str):
-    """Adds phrase to queue and spawns background worker if idle."""
+    """Appends phrase to queue and triggers background worker."""
     clean = text.strip()
     if not clean:
         return
@@ -154,7 +181,7 @@ def enqueue_phrase(text: str):
         )
 
 def resolve_phrase_from_args() -> str:
-    """Extracts text from arguments or cached intent."""
+    """Resolves target phrase from CLI flags or intent files."""
     args = sys.argv[1:]
     if not args:
         return "Neural AI speech engine is online, sir."
@@ -171,17 +198,17 @@ def resolve_phrase_from_args() -> str:
             try:
                 with open(INTENT_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                return data.get("speaking_start", "Executing task, sir.")
+                return data.get("speaking_start", "")
             except Exception:
-                return "Executing task, sir."
-        return "Executing task, sir."
+                return ""
+        return ""
 
-    if args[0] == "--intent-success":
+    if args[0] in ["--intent-response", "--intent-success"]:
         if os.path.exists(INTENT_FILE):
             try:
                 with open(INTENT_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                return data.get("speaking_success", "Task completed successfully, sir.")
+                return data.get("speaking_response", data.get("speaking_success", "Task completed successfully, sir."))
             except Exception:
                 return "Task completed successfully, sir."
         return "Task completed successfully, sir."
@@ -199,6 +226,10 @@ def resolve_phrase_from_args() -> str:
     return " ".join(args).strip()
 
 def main():
+    if "--init" in sys.argv:
+        ensure_static_audio()
+        sys.exit(0)
+
     if "--worker" in sys.argv:
         run_worker()
         sys.exit(0)

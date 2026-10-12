@@ -1,5 +1,5 @@
 {
-  "name": "Jarvis Streamlined Voice Git Workflow",
+  "name": "Jarvis General AI & Git Workflow",
   "nodes": [
     {
       "parameters": {
@@ -14,7 +14,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        180,
+        160,
         300
       ],
       "webhookId": "jarvis-git-webhook"
@@ -28,7 +28,7 @@
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        400,
+        380,
         300
       ],
       "onError": "continueErrorOutput"
@@ -42,10 +42,42 @@
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        620,
+        600,
         300
       ],
       "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "condition-git-action",
+              "leftValue": "={{ JSON.parse($json.stdout).type }}",
+              "rightValue": "git_action",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-is-git-action",
+      "name": "Is Git Action?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        820,
+        300
+      ]
     },
     {
       "parameters": {
@@ -56,8 +88,8 @@
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        840,
-        300
+        1060,
+        200
       ],
       "onError": "continueErrorOutput"
     },
@@ -70,34 +102,47 @@
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1060,
-        300
+        1280,
+        200
       ],
       "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"Task completed successfully, sir.\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
       },
-      "id": "speak-success-cmd",
-      "name": "Announce Completion",
+      "id": "announce-git-done-cmd",
+      "name": "Announce Git Completion",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1300,
+        1500,
         200
       ]
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"Task failed, sir.\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
+      },
+      "id": "speak-qa-answer-cmd",
+      "name": "Speak QA Answer",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-error"
       },
       "id": "speak-error-cmd",
       "name": "Announce Error",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1300,
+        1500,
         440
       ]
     }
@@ -136,7 +181,7 @@
       "main": [
         [
           {
-            "node": "Announce Task Start",
+            "node": "Is Git Action?",
             "type": "main",
             "index": 0
           }
@@ -144,6 +189,24 @@
         [
           {
             "node": "Announce Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Git Action?": {
+      "main": [
+        [
+          {
+            "node": "Announce Task Start",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Speak QA Answer",
             "type": "main",
             "index": 0
           }
@@ -165,7 +228,7 @@
       "main": [
         [
           {
-            "node": "Announce Completion",
+            "node": "Announce Git Completion",
             "type": "main",
             "index": 0
           }
@@ -184,7 +247,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "jarvis-streamlined-v1",
+  "versionId": "jarvis-general-ai-v1",
   "id": "jarvis-git-workflow",
   "tags": []
 }

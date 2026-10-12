@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-Jarvis Dynamic Intent & Task Status Parser
+Jarvis General-Purpose Dual AI Voice Router & Intent Parser
 Features:
-- Primary: Groq Cloud API (llama-3.3-70b-versatile / qwen) | Fallback: Local Ollama.
-- Outputs dynamic status announcements:
-  - speaking_start: "Executing task: <short natural description>"
-  - speaking_success: "Task completed successfully, sir."
-  - speaking_error: "Task failed, sir."
-- Saves speaking_start to `last_status.txt` and cached intent to `last_intent.json`.
-- Enforces explicit project root working directory on all CLI commands.
-- Pure parsing module: leaves speech triggering exclusively to workflow nodes (no double-speech).
+- Handles both Git operations AND general conversational queries (General QA, definitions, chat).
+- Primary: Groq Cloud API (llama-3.3-70b-versatile) | Fallback: Local Ollama (qwen2.5-coder:7b).
+- Output Schema:
+  {
+    "type": "git_action" | "general_qa",
+    "command": "<cli_command_if_git>",
+    "speaking_start": "<short_task_description_if_git>",
+    "speaking_response": "<direct_concise_spoken_answer_for_qa_or_completion>"
+  }
 """
 
 import sys
@@ -30,51 +31,55 @@ TRANSCRIPT_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_transcript.txt")
 INTENT_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_intent.json")
 STATUS_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_status.txt")
 
-SYSTEM_PROMPT = f"""You are the Jarvis Git Automation Engine.
-Your job is to translate voice transcripts into deterministic, executable Git/GitHub CLI commands
-along with concise spoken status phrases.
+SYSTEM_PROMPT = f"""You are Jarvis, a highly intelligent conversational AI assistant and systems engineer.
+Classify the user's voice input into either a Git/GitHub operation ("git_action") OR a general conversation/knowledge query ("general_qa").
 
 You must respond with ONLY a valid, raw JSON object matching the exact schema below.
-DO NOT include markdown backticks (```json), explanations, markdown formatting, or preamble.
+DO NOT include markdown code blocks (```json), explanations, markdown formatting, or preamble.
 
 Strict Output Schema:
 {{
-  "action": "stage_commit_push" | "create_pr" | "checkout_branch" | "status" | "unknown",
-  "command": "<chained_shell_command_with_cd_root>",
-  "speaking_start": "Executing task: <short natural description of task>",
-  "speaking_success": "Task completed successfully, sir.",
-  "speaking_error": "Task failed, sir."
+  "type": "git_action" | "general_qa",
+  "command": "<cli_command_if_git_or_empty>",
+  "speaking_start": "<short_task_description_if_git_or_empty>",
+  "speaking_response": "<direct_concise_spoken_answer_for_qa_or_completion>"
 }}
 
-IMPORTANT WORKING DIRECTORY RULE:
-All CLI commands MUST explicitly prepend: cd "{PROJECT_ROOT}" && ...
+Rules for "git_action":
+- Triggered when the user asks for Git/GitHub tasks: commit, push, git status, checkout, branch, pull request, repo creation.
+- command MUST begin with: cd "{PROJECT_ROOT}" && ...
+- speaking_start: "Executing task: <short task description, e.g. checking git status, sir.>"
+- speaking_response: "Task completed successfully, sir."
+
+Rules for "general_qa":
+- Triggered for ANY general questions, facts, calculations, coding advice, jokes, or chit-chat.
+- command: ""
+- speaking_start: ""
+- speaking_response: Provide a direct, natural, conversational spoken answer (1-3 sentences maximum, no bullet points or markdown).
 
 Examples:
-1. "push my changes with message fix audio bug" ->
+1. Input: "Push my changes with message updated voice pipeline" ->
 {{
-  "action": "stage_commit_push",
-  "command": "cd \\"{PROJECT_ROOT}\\" && git init && git add . && (git commit -m \\"fix audio bug\\" || echo \\"No changes to commit\\") && (git push || gh repo create \\"Jarvis-Voice-Assistant\\" --public --source=. --remote=origin --push)",
+  "type": "git_action",
+  "command": "cd \\"{PROJECT_ROOT}\\" && git init && git add . && (git commit -m \\"updated voice pipeline\\" || echo \\"No changes to commit\\") && (git push || gh repo create \\"Jarvis-Voice-Assistant\\" --public --source=. --remote=origin --push)",
   "speaking_start": "Executing task: committing and pushing your changes, sir.",
-  "speaking_success": "Task completed successfully, sir.",
-  "speaking_error": "Task failed, sir."
+  "speaking_response": "Task completed successfully, sir."
 }}
 
-2. "check git status" ->
+2. Input: "What is standard deviation?" ->
 {{
-  "action": "status",
+  "type": "general_qa",
+  "command": "",
+  "speaking_start": "",
+  "speaking_response": "Standard deviation measures the amount of variation or dispersion in a set of values relative to their mean. A low standard deviation means values are clustered closely around the average."
+}}
+
+3. Input: "Check git status" ->
+{{
+  "type": "git_action",
   "command": "cd \\"{PROJECT_ROOT}\\" && git status",
   "speaking_start": "Executing task: checking git status, sir.",
-  "speaking_success": "Task completed successfully, sir.",
-  "speaking_error": "Task failed, sir."
-}}
-
-3. "switch to branch dev" ->
-{{
-  "action": "checkout_branch",
-  "command": "cd \\"{PROJECT_ROOT}\\" && git checkout dev",
-  "speaking_start": "Executing task: switching to branch dev, sir.",
-  "speaking_success": "Task completed successfully, sir.",
-  "speaking_error": "Task failed, sir."
+  "speaking_response": "Task completed successfully, sir."
 }}
 """
 
@@ -84,33 +89,28 @@ def build_default_intent(transcript: str) -> dict:
 
     if any(w in t for w in ["push", "commit", "repo", "github"]):
         return {
-            "action": "stage_commit_push",
+            "type": "git_action",
             "command": (
                 f'{cd_prefix} && git init && git add . && '
                 f'(git commit -m "Automated update via Jarvis" || echo "No changes to commit") && '
                 f'(git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)'
             ),
             "speaking_start": "Executing task: committing and pushing changes, sir.",
-            "speaking_success": "Task completed successfully, sir.",
-            "speaking_error": "Task failed, sir.",
+            "speaking_response": "Task completed successfully, sir.",
         }
-    elif "branch" in t or "checkout" in t:
-        match = re.search(r"(?:branch|checkout|switch to)\s+([a-zA-Z0-9_\-\./]+)", t)
-        branch = match.group(1) if match else "main"
+    elif any(w in t for w in ["status", "changes"]):
         return {
-            "action": "checkout_branch",
-            "command": f'{cd_prefix} && git checkout {branch}',
-            "speaking_start": f"Executing task: switching to branch {branch}, sir.",
-            "speaking_success": "Task completed successfully, sir.",
-            "speaking_error": "Task failed, sir.",
+            "type": "git_action",
+            "command": f'{cd_prefix} && git status',
+            "speaking_start": "Executing task: checking git status, sir.",
+            "speaking_response": "Task completed successfully, sir.",
         }
     else:
         return {
-            "action": "status",
-            "command": f'{cd_prefix} && git status',
-            "speaking_start": "Executing task: checking git status, sir.",
-            "speaking_success": "Task completed successfully, sir.",
-            "speaking_error": "Task failed, sir.",
+            "type": "general_qa",
+            "command": "",
+            "speaking_start": "",
+            "speaking_response": "I am standing by, sir. How may I assist you?",
         }
 
 def sanitize_json(raw_text: str, transcript: str) -> dict:
@@ -129,17 +129,19 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
     except Exception:
         return build_default_intent(transcript)
 
-    cd_prefix = f'cd "{PROJECT_ROOT}"'
+    req_type = str(data.get("type", "general_qa")).strip()
     cmd = str(data.get("command", "")).strip()
-    if not cmd.startswith("cd "):
-        cmd = f'{cd_prefix} && {cmd}' if cmd else f'{cd_prefix} && git status'
+
+    if req_type == "git_action":
+        cd_prefix = f'cd "{PROJECT_ROOT}"'
+        if not cmd.startswith("cd "):
+            cmd = f'{cd_prefix} && {cmd}' if cmd else f'{cd_prefix} && git status'
 
     return {
-        "action": str(data.get("action", "unknown")),
+        "type": req_type,
         "command": cmd,
-        "speaking_start": str(data.get("speaking_start", "Executing task, sir.")),
-        "speaking_success": "Task completed successfully, sir.",
-        "speaking_error": "Task failed, sir.",
+        "speaking_start": str(data.get("speaking_start", "")),
+        "speaking_response": str(data.get("speaking_response", "Task completed successfully, sir.")),
     }
 
 def call_groq(transcript: str) -> dict:
@@ -168,10 +170,10 @@ def call_groq(transcript: str) -> dict:
                     "model": m,
                     "messages": [
                         {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": f"Voice Transcript: {transcript}"},
+                        {"role": "user", "content": f"User: {transcript}"},
                     ],
-                    "temperature": 0.1,
-                    "max_tokens": 256,
+                    "temperature": 0.3,
+                    "max_tokens": 300,
                 },
                 timeout=8,
             )
@@ -195,9 +197,9 @@ def call_ollama(transcript: str) -> dict:
             "model": "qwen2.5-coder:7b",
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Voice Transcript: {transcript}"},
+                {"role": "user", "content": f"User: {transcript}"},
             ],
-            "options": {"temperature": 0.1},
+            "options": {"temperature": 0.3},
             "stream": False,
         },
         timeout=25,
@@ -241,10 +243,10 @@ def main():
 
     result = route_intent(transcript)
 
-    # Save outputs to cache files
+    # Save to status & intent cache
     try:
         with open(STATUS_CACHE_FILE, "w", encoding="utf-8") as f:
-            f.write(result["speaking_start"])
+            f.write(result.get("speaking_start", ""))
     except Exception as e:
         print(f"[intent_router.py] Status caching notice: {e}", file=sys.stderr)
 
@@ -254,7 +256,7 @@ def main():
     except Exception as e:
         print(f"[intent_router.py] Intent caching notice: {e}", file=sys.stderr)
 
-    # Pure output: stdout JSON only (no duplicate speech trigger)
+    # Output strict JSON to stdout
     print(json.dumps(result, indent=2))
     sys.exit(0)
 
