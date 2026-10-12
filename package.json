@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "description": "Local zero-cost voice assistant automating Git and GitHub operations via n8n, Groq, and Ollama",
   "scripts": {
-    "n8n": "npx n8n start",
-    "start": "npx n8n start"
+    "n8n": "npx -y n8n start",
+    "start": "npx -y n8n start"
   },
   "keywords": [
     "jarvis",

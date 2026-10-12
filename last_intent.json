@@ -1,7 +1,7 @@
 {
   "action": "stage_commit_push",
   "branch": "",
-  "commit_message": "checked git status",
+  "commit_message": "Commit all changes to github repair",
   "pr_title": "",
-  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"checked git status\" || echo \"No changes to commit\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)"
+  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"Commit all changes to github repair\" || echo \"No changes to commit\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)"
 }
