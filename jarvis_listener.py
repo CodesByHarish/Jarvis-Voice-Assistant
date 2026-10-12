@@ -12,6 +12,7 @@ Features:
 import os
 import sys
 import time
+import subprocess
 import wave
 import requests
 import numpy as np
@@ -43,6 +44,16 @@ MIN_SPEECH_CHUNKS = 3     # ~240ms minimum speech
 MAX_RECORDING_SEC = 10    # Safety cap
 VAD_SPEECH_THRESHOLD = 0.35
 RMS_ENERGY_THRESHOLD = 250.0
+
+def launch_hud_interface():
+    """Seamlessly launches the Jarvis Sci-Fi HUD in a non-blocking background subprocess."""
+    hud_script = os.path.join(PROJECT_ROOT, "jarvis_hud.py")
+    if os.path.exists(hud_script):
+        try:
+            subprocess.Popen([sys.executable, hud_script], cwd=PROJECT_ROOT)
+            print("[Jarvis] Sci-Fi HUD Desktop Interface launched in background.")
+        except Exception as e:
+            print(f"[Jarvis] Notice: Could not launch HUD window: {e}", file=sys.stderr)
 
 def play_instant_wake_acknowledgment():
     """Plays pre-rendered 'on_it.mp3' directly in the process for true 0ms response."""
@@ -129,6 +140,9 @@ def main():
     print(f"   VAD Silence Cutoff : {SILENCE_TIMEOUT_MS}ms")
     print(f"   Webhook Target     : {N8N_WEBHOOK_URL}")
     print("==================================================")
+
+    # Launch Sci-Fi Desktop HUD Interface in background
+    launch_hud_interface()
 
     # Initialize Pygame audio mixer pre-warmed for 24kHz
     try:
