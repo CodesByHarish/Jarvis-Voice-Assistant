@@ -1,1 +1,1 @@
-Push all my changes with a message completed.
+can you commit all the changes to github

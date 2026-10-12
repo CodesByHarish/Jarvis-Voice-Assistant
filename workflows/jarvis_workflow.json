@@ -1,5 +1,5 @@
 {
-  "name": "Jarvis Voice Git Automation Workflow",
+  "name": "Jarvis Real-Time Conversational Git Workflow",
   "nodes": [
     {
       "parameters": {
@@ -14,7 +14,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        220,
+        180,
         300
       ],
       "webhookId": "jarvis-git-webhook"
@@ -24,11 +24,11 @@
         "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python transcribe.py recorded_command.wav"
       },
       "id": "transcribe-cmd",
-      "name": "Transcribe Audio",
+      "name": "Transcribe Audio (Groq Whisper)",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        460,
+        400,
         300
       ],
       "onError": "continueErrorOutput"
@@ -42,7 +42,21 @@
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        700,
+        620,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-start"
+      },
+      "id": "announce-start-cmd",
+      "name": "Announce Task Start",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        840,
         300
       ],
       "onError": "continueErrorOutput"
@@ -56,34 +70,34 @@
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        940,
+        1060,
         300
       ],
       "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"Completed the task, sir.\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-success"
       },
       "id": "speak-success-cmd",
-      "name": "Spoken Confirmation (Success)",
+      "name": "Announce Success",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1200,
+        1300,
         200
       ]
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"Task failed, sir.\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-error"
       },
       "id": "speak-error-cmd",
-      "name": "Spoken Confirmation (Error)",
+      "name": "Announce Error",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1200,
+        1300,
         440
       ]
     }
@@ -93,14 +107,14 @@
       "main": [
         [
           {
-            "node": "Transcribe Audio",
+            "node": "Transcribe Audio (Groq Whisper)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Transcribe Audio": {
+    "Transcribe Audio (Groq Whisper)": {
       "main": [
         [
           {
@@ -111,7 +125,7 @@
         ],
         [
           {
-            "node": "Spoken Confirmation (Error)",
+            "node": "Announce Error",
             "type": "main",
             "index": 0
           }
@@ -122,14 +136,25 @@
       "main": [
         [
           {
-            "node": "Execute Git Command",
+            "node": "Announce Task Start",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Spoken Confirmation (Error)",
+            "node": "Announce Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Announce Task Start": {
+      "main": [
+        [
+          {
+            "node": "Execute Git Command",
             "type": "main",
             "index": 0
           }
@@ -140,14 +165,14 @@
       "main": [
         [
           {
-            "node": "Spoken Confirmation (Success)",
+            "node": "Announce Success",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Spoken Confirmation (Error)",
+            "node": "Announce Error",
             "type": "main",
             "index": 0
           }
@@ -159,7 +184,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "jarvis-git-v5",
+  "versionId": "jarvis-conversational-v1",
   "id": "jarvis-git-workflow",
   "tags": []
 }
