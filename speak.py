@@ -213,6 +213,16 @@ def resolve_phrase_from_args() -> str:
                 return "Task completed successfully, sir."
         return "Task completed successfully, sir."
 
+    if args[0] == "--intent-progress":
+        if os.path.exists(INTENT_FILE):
+            try:
+                with open(INTENT_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return data.get("speaking_progress", "")
+            except Exception:
+                return ""
+        return ""
+
     if args[0] == "--intent-error":
         if os.path.exists(INTENT_FILE):
             try:

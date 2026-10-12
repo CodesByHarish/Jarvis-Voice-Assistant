@@ -34,9 +34,16 @@ def main():
         print(f"[execute_git.py] Invalid intent JSON: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Bypass if query is General QA
-    if data.get("type") == "general_qa":
-        print("[execute_git.py] General QA query detected; bypassing Git CLI.")
+    # Delegate to execute_agent if Antigravity task
+    if data.get("type") == "antigravity_task":
+        print("[execute_git.py] Antigravity task detected; delegating to execute_agent.py.")
+        agent_script = os.path.join(PROJECT_ROOT, "execute_agent.py")
+        proc = subprocess.run([sys.executable, agent_script], cwd=PROJECT_ROOT)
+        sys.exit(proc.returncode)
+
+    # Bypass if query is General QA or Codebase QA
+    if data.get("type") in ["general_qa", "codebase_qa"]:
+        print("[execute_git.py] QA query detected; bypassing Git CLI.")
         sys.exit(0)
 
     command = data.get("command", "git status").strip()

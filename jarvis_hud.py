@@ -51,6 +51,8 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 TRANSCRIPT_FILE = os.path.join(PROJECT_ROOT, "last_transcript.txt")
 INTENT_FILE = os.path.join(PROJECT_ROOT, "last_intent.json")
 STATUS_FILE = os.path.join(PROJECT_ROOT, "last_status.txt")
+ANTIGRAVITY_TASK_FILE = os.path.join(PROJECT_ROOT, "antigravity_task.json")
+ANTIGRAVITY_LOG_FILE = os.path.join(PROJECT_ROOT, "antigravity_log.txt")
 
 # Cyber Sci-Fi Color Palette
 COLOR_BG = QColor(11, 11, 30, 245)
@@ -307,6 +309,8 @@ class JarvisHUD(QMainWindow):
         self.typewriter_text = ""
         self.typewriter_idx = 0
         self.active_command_log: List[str] = []
+        self.last_ag_log_size = 0
+        self.last_ag_task_status = ""
 
         self.init_ui()
 
@@ -401,6 +405,21 @@ class JarvisHUD(QMainWindow):
         self.panel_pipe = SciFiFrame("3. PIPELINE EXECUTION")
         pipe_layout = QVBoxLayout(self.panel_pipe)
         pipe_layout.setContentsMargins(10, 30, 10, 10)
+        pipe_layout.setSpacing(6)
+
+        # Antigravity Status Indicator
+        ag_status_layout = QHBoxLayout()
+        self.lbl_ag_tag = QLabel("BRIDGE:")
+        self.lbl_ag_tag.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+        self.lbl_ag_tag.setStyleSheet("color: #8ca0b8;")
+        ag_status_layout.addWidget(self.lbl_ag_tag)
+
+        self.badge_antigravity = QLabel("[ANTIGRAVITY: STANDBY]")
+        self.badge_antigravity.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+        self.badge_antigravity.setStyleSheet("color: #00e1ff; background: rgba(0, 225, 255, 20); border: 1px solid #00e1ff; padding: 2px 6px; border-radius: 2px;")
+        ag_status_layout.addWidget(self.badge_antigravity)
+        ag_status_layout.addStretch()
+        pipe_layout.addLayout(ag_status_layout)
 
         self.txt_console = QTextEdit()
         self.txt_console.setReadOnly(True)
@@ -517,6 +536,46 @@ class JarvisHUD(QMainWindow):
                                 self.log_console(f">> EXECUTING: {clean_sub}", color="#00e1ff")
                             elif "cd " in clean_sub:
                                 self.log_console(f">> WORKSPACE: {clean_sub}", color="#8ca0b8")
+            except Exception:
+                pass
+
+        # 4. Stream Antigravity Telemetry Logs to Panel 3
+        if os.path.exists(ANTIGRAVITY_LOG_FILE):
+            try:
+                curr_size = os.path.getsize(ANTIGRAVITY_LOG_FILE)
+                if curr_size > self.last_ag_log_size:
+                    with open(ANTIGRAVITY_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                        f.seek(self.last_ag_log_size)
+                        new_content = f.read()
+                        self.last_ag_log_size = curr_size
+                    for line in new_content.splitlines():
+                        line_clean = line.strip()
+                        if line_clean:
+                            color = "#00e1ff" if "PASSED" in line_clean else ("#ff9d00" if "Reading" in line_clean or "AST" in line_clean else "#00ff88")
+                            self.log_console(line_clean, color=color)
+            except Exception:
+                pass
+
+        # 5. Monitor Antigravity Task Payload
+        if os.path.exists(ANTIGRAVITY_TASK_FILE):
+            try:
+                with open(ANTIGRAVITY_TASK_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                    ag_task = json.load(f)
+                status = ag_task.get("status", "")
+                action = ag_task.get("action", "task").upper()
+                target = ag_task.get("target_file", "")
+
+                if status != self.last_ag_task_status:
+                    self.last_ag_task_status = status
+                    if status in ["pending", "in_progress"]:
+                        self.badge_antigravity.setText(f"[ANTIGRAVITY: {action} // {target}]")
+                        self.badge_antigravity.setStyleSheet("color: #ff9d00; background: rgba(255, 157, 0, 30); border: 1px solid #ff9d00; padding: 2px 6px; border-radius: 2px;")
+                    elif status == "completed":
+                        self.badge_antigravity.setText(f"[ANTIGRAVITY: {target} [SYS_OK]]")
+                        self.badge_antigravity.setStyleSheet("color: #00ff88; background: rgba(0, 255, 136, 30); border: 1px solid #00ff88; padding: 2px 6px; border-radius: 2px;")
+                    elif status == "failed":
+                        self.badge_antigravity.setText(f"[ANTIGRAVITY: DEFECT DETECTED]")
+                        self.badge_antigravity.setStyleSheet("color: #ff4444; background: rgba(255, 68, 68, 30); border: 1px solid #ff4444; padding: 2px 6px; border-radius: 2px;")
             except Exception:
                 pass
 

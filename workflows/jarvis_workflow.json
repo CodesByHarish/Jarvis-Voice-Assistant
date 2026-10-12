@@ -1,5 +1,5 @@
 {
-  "name": "Jarvis General AI & Git Workflow",
+  "name": "Jarvis General AI, Antigravity & Git Workflow",
   "nodes": [
     {
       "parameters": {
@@ -122,6 +122,79 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "condition-ag-task",
+              "leftValue": "={{ JSON.parse($json.stdout).type }}",
+              "rightValue": "antigravity_task",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-is-antigravity-task",
+      "name": "Is Antigravity Task?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-start"
+      },
+      "id": "announce-ag-start-cmd",
+      "name": "Announce Antigravity Start",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        360
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python execute_agent.py"
+      },
+      "id": "execute-ag-cmd",
+      "name": "Execute Antigravity Bridge",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        360
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
+      },
+      "id": "announce-ag-done-cmd",
+      "name": "Announce Antigravity Done",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1720,
+        360
+      ]
+    },
+    {
+      "parameters": {
         "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
       },
       "id": "speak-qa-answer-cmd",
@@ -129,8 +202,8 @@
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1060,
-        440
+        1280,
+        540
       ]
     },
     {
@@ -142,8 +215,8 @@
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1500,
-        440
+        1720,
+        540
       ]
     }
   ],
@@ -206,7 +279,7 @@
         ],
         [
           {
-            "node": "Speak QA Answer",
+            "node": "Is Antigravity Task?",
             "type": "main",
             "index": 0
           }
@@ -241,13 +314,60 @@
           }
         ]
       ]
+    },
+    "Is Antigravity Task?": {
+      "main": [
+        [
+          {
+            "node": "Announce Antigravity Start",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Speak QA Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Announce Antigravity Start": {
+      "main": [
+        [
+          {
+            "node": "Execute Antigravity Bridge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Antigravity Bridge": {
+      "main": [
+        [
+          {
+            "node": "Announce Antigravity Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Announce Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "jarvis-general-ai-v1",
+  "versionId": "jarvis-antigravity-ai-v2",
   "id": "jarvis-git-workflow",
   "tags": []
 }
