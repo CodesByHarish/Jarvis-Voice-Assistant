@@ -5,17 +5,17 @@ Features:
 - Primary: Groq Cloud API (llama-3.3-70b-versatile / qwen) | Fallback: Local Ollama.
 - Outputs dynamic status announcements:
   - speaking_start: "Executing task: <short natural description>"
-  - speaking_success: "<short natural completion phrase>"
-  - speaking_error: "Task failed: <short error phrase>"
+  - speaking_success: "Task completed successfully, sir."
+  - speaking_error: "Task failed, sir."
 - Saves speaking_start to `last_status.txt` and cached intent to `last_intent.json`.
 - Enforces explicit project root working directory on all CLI commands.
+- Pure parsing module: leaves speech triggering exclusively to workflow nodes (no double-speech).
 """
 
 import sys
 import os
 import json
 import re
-import subprocess
 import requests
 from dotenv import load_dotenv
 
@@ -32,7 +32,7 @@ STATUS_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_status.txt")
 
 SYSTEM_PROMPT = f"""You are the Jarvis Git Automation Engine.
 Your job is to translate voice transcripts into deterministic, executable Git/GitHub CLI commands
-along with natural, spoken voice announcements.
+along with concise spoken status phrases.
 
 You must respond with ONLY a valid, raw JSON object matching the exact schema below.
 DO NOT include markdown backticks (```json), explanations, markdown formatting, or preamble.
@@ -42,8 +42,8 @@ Strict Output Schema:
   "action": "stage_commit_push" | "create_pr" | "checkout_branch" | "status" | "unknown",
   "command": "<chained_shell_command_with_cd_root>",
   "speaking_start": "Executing task: <short natural description of task>",
-  "speaking_success": "<short natural completion phrase, e.g. Changes successfully pushed to GitHub, sir.>",
-  "speaking_error": "Task failed: <short natural explanation, e.g. Could not complete the git action, sir.>"
+  "speaking_success": "Task completed successfully, sir.",
+  "speaking_error": "Task failed, sir."
 }}
 
 IMPORTANT WORKING DIRECTORY RULE:
@@ -54,9 +54,9 @@ Examples:
 {{
   "action": "stage_commit_push",
   "command": "cd \\"{PROJECT_ROOT}\\" && git init && git add . && (git commit -m \\"fix audio bug\\" || echo \\"No changes to commit\\") && (git push || gh repo create \\"Jarvis-Voice-Assistant\\" --public --source=. --remote=origin --push)",
-  "speaking_start": "Executing task: committing and pushing your changes to GitHub, sir.",
-  "speaking_success": "Changes successfully pushed to repository, sir.",
-  "speaking_error": "Task failed: Unable to push to GitHub, sir."
+  "speaking_start": "Executing task: committing and pushing your changes, sir.",
+  "speaking_success": "Task completed successfully, sir.",
+  "speaking_error": "Task failed, sir."
 }}
 
 2. "check git status" ->
@@ -64,8 +64,8 @@ Examples:
   "action": "status",
   "command": "cd \\"{PROJECT_ROOT}\\" && git status",
   "speaking_start": "Executing task: checking git status, sir.",
-  "speaking_success": "Git status retrieved, sir.",
-  "speaking_error": "Task failed: Could not read git status, sir."
+  "speaking_success": "Task completed successfully, sir.",
+  "speaking_error": "Task failed, sir."
 }}
 
 3. "switch to branch dev" ->
@@ -73,8 +73,8 @@ Examples:
   "action": "checkout_branch",
   "command": "cd \\"{PROJECT_ROOT}\\" && git checkout dev",
   "speaking_start": "Executing task: switching to branch dev, sir.",
-  "speaking_success": "Switched to branch dev, sir.",
-  "speaking_error": "Task failed: Could not switch branch, sir."
+  "speaking_success": "Task completed successfully, sir.",
+  "speaking_error": "Task failed, sir."
 }}
 """
 
@@ -90,9 +90,9 @@ def build_default_intent(transcript: str) -> dict:
                 f'(git commit -m "Automated update via Jarvis" || echo "No changes to commit") && '
                 f'(git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)'
             ),
-            "speaking_start": "Executing task: staging, committing, and pushing to GitHub, sir.",
-            "speaking_success": "Completed the task: changes pushed successfully, sir.",
-            "speaking_error": "Task failed: Unable to push changes, sir.",
+            "speaking_start": "Executing task: committing and pushing changes, sir.",
+            "speaking_success": "Task completed successfully, sir.",
+            "speaking_error": "Task failed, sir.",
         }
     elif "branch" in t or "checkout" in t:
         match = re.search(r"(?:branch|checkout|switch to)\s+([a-zA-Z0-9_\-\./]+)", t)
@@ -101,16 +101,16 @@ def build_default_intent(transcript: str) -> dict:
             "action": "checkout_branch",
             "command": f'{cd_prefix} && git checkout {branch}',
             "speaking_start": f"Executing task: switching to branch {branch}, sir.",
-            "speaking_success": f"Switched to branch {branch}, sir.",
-            "speaking_error": f"Task failed: Could not switch to branch {branch}, sir.",
+            "speaking_success": "Task completed successfully, sir.",
+            "speaking_error": "Task failed, sir.",
         }
     else:
         return {
             "action": "status",
             "command": f'{cd_prefix} && git status',
             "speaking_start": "Executing task: checking git status, sir.",
-            "speaking_success": "Git status checked, sir.",
-            "speaking_error": "Task failed: Could not retrieve git status, sir.",
+            "speaking_success": "Task completed successfully, sir.",
+            "speaking_error": "Task failed, sir.",
         }
 
 def sanitize_json(raw_text: str, transcript: str) -> dict:
@@ -138,8 +138,8 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
         "action": str(data.get("action", "unknown")),
         "command": cmd,
         "speaking_start": str(data.get("speaking_start", "Executing task, sir.")),
-        "speaking_success": str(data.get("speaking_success", "Completed the task, sir.")),
-        "speaking_error": str(data.get("speaking_error", "Task failed, sir.")),
+        "speaking_success": "Task completed successfully, sir.",
+        "speaking_error": "Task failed, sir.",
     }
 
 def call_groq(transcript: str) -> dict:
@@ -171,7 +171,7 @@ def call_groq(transcript: str) -> dict:
                         {"role": "user", "content": f"Voice Transcript: {transcript}"},
                     ],
                     "temperature": 0.1,
-                    "max_tokens": 300,
+                    "max_tokens": 256,
                 },
                 timeout=8,
             )
@@ -254,20 +254,7 @@ def main():
     except Exception as e:
         print(f"[intent_router.py] Intent caching notice: {e}", file=sys.stderr)
 
-    # Announce start immediately via non-blocking speak.py
-    try:
-        python_bin = sys.executable
-        speak_script = os.path.join(PROJECT_ROOT, "speak.py")
-        subprocess.Popen(
-            [python_bin, speak_script, result["speaking_start"]],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            shell=False,
-        )
-    except Exception as e:
-        print(f"[intent_router.py] Speech trigger notice: {e}", file=sys.stderr)
-
-    # Print strict JSON
+    # Pure output: stdout JSON only (no duplicate speech trigger)
     print(json.dumps(result, indent=2))
     sys.exit(0)
 

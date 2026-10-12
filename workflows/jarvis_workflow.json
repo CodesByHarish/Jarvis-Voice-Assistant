@@ -1,5 +1,5 @@
 {
-  "name": "Jarvis Real-Time Conversational Git Workflow",
+  "name": "Jarvis Streamlined Voice Git Workflow",
   "nodes": [
     {
       "parameters": {
@@ -24,7 +24,7 @@
         "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python transcribe.py recorded_command.wav"
       },
       "id": "transcribe-cmd",
-      "name": "Transcribe Audio (Groq Whisper)",
+      "name": "Transcribe Audio",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
@@ -77,10 +77,10 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-success"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"Task completed successfully, sir.\""
       },
       "id": "speak-success-cmd",
-      "name": "Announce Success",
+      "name": "Announce Completion",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
@@ -90,7 +90,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-error"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"Task failed, sir.\""
       },
       "id": "speak-error-cmd",
       "name": "Announce Error",
@@ -107,14 +107,14 @@
       "main": [
         [
           {
-            "node": "Transcribe Audio (Groq Whisper)",
+            "node": "Transcribe Audio",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Transcribe Audio (Groq Whisper)": {
+    "Transcribe Audio": {
       "main": [
         [
           {
@@ -165,7 +165,7 @@
       "main": [
         [
           {
-            "node": "Announce Success",
+            "node": "Announce Completion",
             "type": "main",
             "index": 0
           }
@@ -184,7 +184,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "jarvis-conversational-v1",
+  "versionId": "jarvis-streamlined-v1",
   "id": "jarvis-git-workflow",
   "tags": []
 }

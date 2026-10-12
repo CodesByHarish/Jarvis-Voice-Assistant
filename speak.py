@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """
-Jarvis Ultra-Natural Neural AI Speech Synthesis Module
+Jarvis Zero-Latency Neural AI Speech Synthesis Module
 Features:
-- Primary Engine: edge-tts using 'en-US-ChristopherNeural' for a deep, cinematic Jarvis tone.
-- Audio Player: Clean, glitch-free playback via pygame.mixer.
-- Offline Fallbacks: Native Windows PowerShell System.Speech (SAPI5) and pyttsx3.
-- Sequential Queue: Consecutive phrases ("Listening..." -> "Executing..." -> "Completed...")
-  never overlap, stutter, or clip.
-- Completely Non-Blocking: Returns in <20ms while the background worker speaks.
-- CLI Flags: --file <path>, --intent-start, --intent-success, --intent-error, --blocking.
+- Single cached audio file: reuses `temp_speech.mp3` to eliminate disk clutter.
+- 24kHz Pre-initialized pygame.mixer for sub-50ms instant playback.
+- Pure edge-tts (en-US-ChristopherNeural) with immediate lock release on completion.
+- Non-blocking sequential speech daemon ensures consecutive announcements never overlap.
+- CLI Flags: --file <path>, --intent-start, --intent-success, --intent-error, --direct.
 """
 
 import sys
@@ -18,123 +16,69 @@ import json
 import asyncio
 import subprocess
 
-# Suppress Pygame community banner
+# Suppress Pygame banner
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 QUEUE_FILE = os.path.join(PROJECT_ROOT, "speech_queue.txt")
 LOCK_FILE = os.path.join(PROJECT_ROOT, "speech.lock")
 INTENT_FILE = os.path.join(PROJECT_ROOT, "last_intent.json")
+TEMP_SPEECH_FILE = os.path.join(PROJECT_ROOT, "temp_speech.mp3")
 
 NEURAL_VOICE = "en-US-ChristopherNeural"
 
-async def generate_neural_speech(text: str, output_path: str):
-    """Generates audio file using edge-tts with ChristopherNeural voice."""
+async def generate_speech_audio(text: str, output_path: str):
+    """Renders speech to the single cached MP3 file using edge-tts."""
     import edge_tts
-    # Add slight pitch and rate adjustment for authentic Jarvis persona
-    communicate = edge_tts.Communicate(text, voice=NEURAL_VOICE, rate="+0%", pitch="-2Hz")
-    await communicate.save(output_path)
+    communicator = edge_tts.Communicate(
+        text=text,
+        voice=NEURAL_VOICE,
+        rate="+0%",
+        pitch="-2Hz",
+    )
+    await communicator.save(output_path)
 
-def play_audio_file(audio_path: str) -> bool:
-    """Plays an audio file cleanly using pygame.mixer."""
+def play_and_release(audio_path: str):
+    """Plays audio via pre-initialized 24kHz pygame mixer and releases lock immediately."""
+    if not os.path.exists(audio_path):
+        return
+
+    import pygame
+
     try:
-        import pygame
-        pygame.mixer.init()
+        # Pre-initialize at native 24000Hz to eliminate resampling latency
+        pygame.mixer.init(frequency=24000, buffer=1024)
         pygame.mixer.music.load(audio_path)
         pygame.mixer.music.play()
         while pygame.mixer.music.get_busy():
-            time.sleep(0.05)
+            time.sleep(0.03)
         pygame.mixer.music.stop()
         if hasattr(pygame.mixer.music, "unload"):
             pygame.mixer.music.unload()
         pygame.mixer.quit()
-        return True
     except Exception as e:
-        print(f"[speak.py] Pygame playback error: {e}", file=sys.stderr)
+        print(f"[speak.py] Playback notice: {e}", file=sys.stderr)
         try:
-            import pygame
             pygame.mixer.quit()
         except Exception:
             pass
-        return False
-
-def speak_with_neural_ai(text: str) -> bool:
-    """Attempts Neural AI TTS using edge-tts + pygame."""
-    temp_file = os.path.join(PROJECT_ROOT, f"temp_tts_{os.getpid()}_{int(time.time()*1000)}.mp3")
-    try:
-        asyncio.run(generate_neural_speech(text, temp_file))
-        if os.path.exists(temp_file) and os.path.getsize(temp_file) > 0:
-            success = play_audio_file(temp_file)
-            try:
-                os.remove(temp_file)
-            except Exception:
-                pass
-            return success
-        return False
-    except Exception as e:
-        print(f"[speak.py] Neural TTS offline or unavailable ({e}), using fallback...", file=sys.stderr)
-        try:
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
-        except Exception:
-            pass
-        return False
-
-def speak_with_powershell(text: str) -> bool:
-    """Native Windows System.Speech SAPI5 fallback."""
-    try:
-        escaped = text.replace("'", "''").replace('"', '""')
-        ps_cmd = (
-            f"Add-Type -AssemblyName System.Speech; "
-            f"$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-            f"$synth.Rate = 0; "
-            f"$synth.Speak('{escaped}')"
-        )
-        proc = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_cmd],
-            capture_output=True,
-            text=True,
-            timeout=25,
-        )
-        return proc.returncode == 0
-    except Exception as e:
-        print(f"[speak.py] PowerShell SAPI5 notice: {e}", file=sys.stderr)
-        return False
-
-def speak_with_pyttsx3(text: str) -> bool:
-    """Offline pyttsx3 fallback."""
-    try:
-        import pyttsx3
-        engine = pyttsx3.init()
-        engine.setProperty("rate", 175)
-        engine.say(text)
-        engine.runAndWait()
-        return True
-    except Exception as e:
-        print(f"[speak.py] pyttsx3 fallback notice: {e}", file=sys.stderr)
-        return False
 
 def speak_direct(text: str):
-    """Speaks text using Neural AI first, falling back to SAPI5 and pyttsx3."""
+    """Synthesizes and plays speech using the single temp_speech.mp3 cache."""
     clean = text.strip()
     if not clean:
         return
 
-    print(f"[Jarvis Neural Speaking]: {clean}")
+    print(f"[Jarvis Neural Voice]: {clean}")
 
-    # 1. Primary: Ultra-natural Neural AI (edge-tts)
-    if speak_with_neural_ai(clean):
-        return
-
-    # 2. Fallback: Native Windows PowerShell SAPI5
-    if speak_with_powershell(clean):
-        return
-
-    # 3. Fallback: pyttsx3
-    speak_with_pyttsx3(clean)
+    try:
+        asyncio.run(generate_speech_audio(clean, TEMP_SPEECH_FILE))
+        play_and_release(TEMP_SPEECH_FILE)
+    except Exception as e:
+        print(f"[speak.py] edge-tts error: {e}", file=sys.stderr)
 
 def run_worker():
-    """Background worker process draining speech queue sequentially."""
+    """Background worker processing speech queue sequentially."""
     try:
         with open(LOCK_FILE, "w", encoding="utf-8") as f:
             f.write(str(os.getpid()))
@@ -154,12 +98,12 @@ def run_worker():
                             for remaining in lines[1:]:
                                 f.write(remaining + "\n")
                 except Exception:
-                    time.sleep(0.05)
+                    time.sleep(0.04)
                     continue
 
             if phrase:
                 speak_direct(phrase)
-                time.sleep(0.1)
+                time.sleep(0.08)
             else:
                 break
     finally:
@@ -170,7 +114,7 @@ def run_worker():
             pass
 
 def is_worker_active() -> bool:
-    """Checks if a worker process is currently running."""
+    """Checks if background speech daemon is running."""
     if not os.path.exists(LOCK_FILE):
         return False
     try:
@@ -191,7 +135,7 @@ def is_worker_active() -> bool:
         return False
 
 def enqueue_phrase(text: str):
-    """Appends phrase to queue and launches background worker if idle."""
+    """Adds phrase to queue and spawns background worker if idle."""
     clean = text.strip()
     if not clean:
         return
@@ -210,10 +154,10 @@ def enqueue_phrase(text: str):
         )
 
 def resolve_phrase_from_args() -> str:
-    """Resolves phrase from arguments, files, or intent cache."""
+    """Extracts text from arguments or cached intent."""
     args = sys.argv[1:]
     if not args:
-        return "System online, sir."
+        return "Neural AI speech engine is online, sir."
 
     if args[0] == "--file" and len(args) > 1:
         path = args[1]
@@ -237,10 +181,10 @@ def resolve_phrase_from_args() -> str:
             try:
                 with open(INTENT_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                return data.get("speaking_success", "Completed the task, sir.")
+                return data.get("speaking_success", "Task completed successfully, sir.")
             except Exception:
-                return "Completed the task, sir."
-        return "Completed the task, sir."
+                return "Task completed successfully, sir."
+        return "Task completed successfully, sir."
 
     if args[0] == "--intent-error":
         if os.path.exists(INTENT_FILE):
@@ -260,7 +204,6 @@ def main():
         sys.exit(0)
 
     if "--direct" in sys.argv:
-        # Synchronous direct speech mode
         remaining = [a for a in sys.argv[1:] if a != "--direct"]
         text = " ".join(remaining) if remaining else "Neural AI speech engine is online, sir."
         speak_direct(text)

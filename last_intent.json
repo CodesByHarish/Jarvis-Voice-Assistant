@@ -1,7 +1,7 @@
 {
   "action": "stage_commit_push",
-  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"Push all changes\" || echo \"No changes to commit\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)",
-  "speaking_start": "Executing task: pushing all changes to GitHub, sir.",
-  "speaking_success": "All changes successfully pushed to GitHub, sir.",
-  "speaking_error": "Task failed: Could not push changes to GitHub, sir."
+  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"updated voice pipeline\" || echo \"No changes to commit\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)",
+  "speaking_start": "Executing task: committing and pushing your changes, sir.",
+  "speaking_success": "Task completed successfully, sir.",
+  "speaking_error": "Task failed, sir."
 }

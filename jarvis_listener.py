@@ -2,11 +2,11 @@
 """
 Jarvis Zero-Latency Real-Time Conversational Voice Listener
 Features:
-- Real-time openWakeWord detection (Threshold: 0.20).
-- Immediate non-blocking acknowledgment: "Listening, sir." via asynchronous speech queue.
-- Dynamic Silero Voice Activity Detection (VAD) + RMS energy boundary tracking.
-- Eliminates fixed waits: stops recording immediately after >=600ms of trailing silence.
-- Instant multipart HTTP POST dispatch to n8n webhook.
+- Instant openWakeWord detection (Threshold: 0.20).
+- Single, non-blocking wake acknowledgment: "On it, sir.".
+- Ultra-responsive Silero VAD boundary detection with 350ms silence cutoff.
+- Zero duplicate speech triggers prior to webhook dispatch.
+- Direct multipart HTTP POST dispatch to n8n webhook.
 """
 
 import os
@@ -26,27 +26,27 @@ N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "http://localhost:5678/webhook/ja
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_AUDIO_FILE = os.path.join(PROJECT_ROOT, "recorded_command.wav")
 
-# Wake Word & Audio Parameters
+# Audio & Wake Word Parameters
 THRESHOLD = 0.20
 RATE = 16000
-CHUNK = 1280  # 80ms chunks (exact multiple of 160/320/640 for Silero VAD)
+CHUNK = 1280  # 80ms chunks
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 
-# VAD Parameters
-SILENCE_TIMEOUT_MS = 600  # Stop immediately on >=600ms trailing silence
-MIN_SPEECH_CHUNKS = 4     # ~320ms minimum speech to avoid false silence cutoffs
-MAX_RECORDING_SEC = 12    # Safety timeout
+# Ultra-Low Latency VAD Parameters
+SILENCE_TIMEOUT_MS = 350  # 350ms silence cutoff for near-instant dispatch
+MIN_SPEECH_CHUNKS = 3     # ~240ms minimum speech
+MAX_RECORDING_SEC = 10    # Safety cap
 VAD_SPEECH_THRESHOLD = 0.35
 RMS_ENERGY_THRESHOLD = 250.0
 
 def speak_acknowledgment():
-    """Triggers non-blocking acknowledgment: 'Listening, sir.'"""
+    """Immediately triggers single non-blocking wake acknowledgment: 'On it, sir.'"""
     python_bin = sys.executable
     speak_script = os.path.join(PROJECT_ROOT, "speak.py")
     try:
         subprocess.Popen(
-            [python_bin, speak_script, "Listening, sir."],
+            [python_bin, speak_script, "On it, sir."],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             shell=False,
@@ -55,15 +55,13 @@ def speak_acknowledgment():
         print(f"[jarvis_listener] Speech trigger notice: {e}", file=sys.stderr)
 
 def record_dynamic_command(stream: pyaudio.Stream, vad_engine) -> bytes:
-    """Dynamically records microphone input using Silero VAD until 600ms of silence."""
-    print("[Jarvis] Streaming audio: dynamic VAD speech detection active...")
+    """Dynamically records microphone audio, stopping within 350ms of silence."""
+    print("[Jarvis] Streaming audio: dynamic VAD active (350ms silence cutoff)...")
     frames = []
     has_spoken = False
     speech_chunks_count = 0
     silence_duration_ms = 0
     start_time = time.time()
-
-    # Pre-speech buffer (first 160ms) to ensure initial consonant isn't clipped
     max_chunks = int((RATE / CHUNK) * MAX_RECORDING_SEC)
 
     for _ in range(max_chunks):
@@ -71,13 +69,13 @@ def record_dynamic_command(stream: pyaudio.Stream, vad_engine) -> bytes:
         frames.append(raw_data)
         audio_chunk = np.frombuffer(raw_data, dtype=np.int16)
 
-        # 1. Silero VAD Speech Score
+        # Silero VAD speech score
         try:
             speech_prob = vad_engine.predict(audio_chunk, frame_size=320)
         except Exception:
             speech_prob = 0.0
 
-        # 2. RMS Energy calculation
+        # RMS Energy calculation
         rms = np.sqrt(np.mean(audio_chunk.astype(np.float32) ** 2))
         is_speech = (speech_prob >= VAD_SPEECH_THRESHOLD) or (rms >= RMS_ENERGY_THRESHOLD)
 
@@ -87,12 +85,11 @@ def record_dynamic_command(stream: pyaudio.Stream, vad_engine) -> bytes:
             silence_duration_ms = 0
         else:
             if has_spoken and speech_chunks_count >= MIN_SPEECH_CHUNKS:
-                silence_duration_ms += 80  # Each chunk is 80ms
+                silence_duration_ms += 80
                 if silence_duration_ms >= SILENCE_TIMEOUT_MS:
                     print(f"[Jarvis] End-of-speech detected ({silence_duration_ms}ms silence). Stopping capture.")
                     break
 
-        # Max recording safety escape
         if time.time() - start_time > MAX_RECORDING_SEC:
             print("[Jarvis] Maximum recording safety timeout reached.")
             break
@@ -112,7 +109,7 @@ def dispatch_to_n8n(audio_path: str):
     try:
         with open(audio_path, "rb") as f:
             files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
-            resp = requests.post(N8N_WEBHOOK_URL, files=files, timeout=60)
+            resp = requests.post(N8N_WEBHOOK_URL, files=files, timeout=45)
             print(f"[Jarvis] n8n response: HTTP {resp.status_code}")
             if resp.status_code >= 400:
                 print(f"[Jarvis] n8n webhook notification: {resp.text}", file=sys.stderr)
@@ -127,19 +124,17 @@ def main():
     from openwakeword.vad import VAD
 
     print("==================================================")
-    print("   JARVIS REAL-TIME CONVERSATIONAL VOICE AGENT    ")
+    print("   JARVIS ZERO-LATENCY CONVERSATIONAL LISTENER    ")
     print(f"   Wake Sensitivity   : Threshold {THRESHOLD} (High)")
-    print(f"   Speech End VAD     : Silero (>= {SILENCE_TIMEOUT_MS}ms silence cutoff)")
+    print(f"   VAD Silence Cutoff : {SILENCE_TIMEOUT_MS}ms")
     print(f"   Webhook Target     : {N8N_WEBHOOK_URL}")
     print("==================================================")
 
-    # Pre-cache models
     try:
         openwakeword.utils.download_models()
     except Exception:
         pass
 
-    # Initialize openWakeWord & Silero VAD
     try:
         oww_model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
         vad_engine = VAD()
@@ -168,24 +163,23 @@ def main():
             raw_data = stream.read(CHUNK, exception_on_overflow=False)
             audio_array = np.frombuffer(raw_data, dtype=np.int16)
 
-            # Predict wake-word score
             prediction = oww_model.predict(audio_array)
             score = prediction.get("hey_jarvis", 0.0)
 
             if score >= THRESHOLD:
                 print(f"\n[Jarvis] Wake word detected! (Confidence: {score:.2f} >= {THRESHOLD})")
                 
-                # 1. Immediate non-blocking response: "Listening, sir."
+                # 1. Single non-blocking acknowledgment
                 speak_acknowledgment()
 
-                # 2. Dynamic VAD Recording (cuts off immediately on >=600ms silence)
+                # 2. Dynamic VAD Recording with 350ms cutoff
                 audio_bytes = record_dynamic_command(stream, vad_engine)
                 save_wav(audio_bytes, audio, OUTPUT_AUDIO_FILE)
 
                 # 3. Fire to n8n webhook
                 dispatch_to_n8n(OUTPUT_AUDIO_FILE)
 
-                # Reset model buffers
+                # Reset internal buffers
                 oww_model.reset()
                 vad_engine.reset_states()
                 print("[Jarvis] Standing by for next command...")
