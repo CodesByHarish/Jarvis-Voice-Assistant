@@ -1,1 +1,1 @@
-Executing task: staging, committing, and pushing to GitHub, sir.
+Executing task: pushing all changes to GitHub, sir.

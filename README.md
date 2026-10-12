@@ -1,6 +1,6 @@
 # Jarvis - Real-Time Conversational Voice Git Automation
 
-Zero-cost, local, zero-latency voice assistant that automates Git and GitHub CLI operations using **openWakeWord** (Sensitivity: 0.20), **Silero VAD** (Dynamic >=600ms silence boundary detection), **Groq Whisper (`whisper-large-v3-turbo`)**, **Groq LLM** (with local **Ollama `qwen2.5-coder:7b`** fallback), and **n8n**.
+Zero-cost, local, zero-latency voice assistant that automates Git and GitHub CLI operations using **openWakeWord** (Sensitivity: 0.20), **Silero VAD** (Dynamic >=600ms silence boundary detection), **Groq Whisper (`whisper-large-v3-turbo`)**, **Groq LLM** (with local **Ollama `qwen2.5-coder:7b`** fallback), **Neural AI TTS (`edge-tts` with `en-US-ChristopherNeural`)**, and **n8n**.
 
 ---
 
@@ -12,7 +12,7 @@ sequenceDiagram
     actor User
     participant Mic as Microphone
     participant Listener as jarvis_listener.py (Silero VAD)
-    participant Speak as speak.py (Queued Async TTS)
+    participant Speak as speak.py (Neural AI TTS)
     participant n8n as n8n Webhook Pipeline
     participant ASR as transcribe.py (Groq Whisper)
     participant Router as intent_router.py (Groq / Ollama)
@@ -21,7 +21,7 @@ sequenceDiagram
     User->>Mic: "Hey Jarvis"
     Mic->>Listener: Audio Stream (16kHz PCM)
     Listener->>Speak: python speak.py "Listening, sir." (Non-blocking)
-    Speak-->>User: Spoken Response: "Listening, sir."
+    Speak-->>User: Neural Spoken Response: "Listening, sir."
     User->>Mic: Speaks command (e.g., "Push all my changes with message fixed auth bug")
     Note over Listener: Silero VAD monitors speech.<br/>Stops immediately after >=600ms silence.
     Listener->>n8n: POST multipart/form-data to /webhook/jarvis-git
@@ -30,14 +30,14 @@ sequenceDiagram
     n8n->>Router: cd "..." && python intent_router.py
     Note over Router: Parses intent & dynamic speech announcements.<br/>Saves speaking_start, speaking_success, speaking_error.
     n8n->>Speak: cd "..." && python speak.py --intent-start
-    Speak-->>User: Spoken Announcement: "Executing task: committing and pushing your changes, sir."
+    Speak-->>User: Neural Spoken Announcement: "Executing task: committing and pushing your changes, sir."
     n8n->>Exec: cd "..." && python execute_git.py
     alt Git Execution Succeeded (Exit Code 0)
         n8n->>Speak: cd "..." && python speak.py --intent-success
-        Speak-->>User: Spoken Response: "Changes successfully pushed to repository, sir."
+        Speak-->>User: Neural Spoken Response: "Changes successfully pushed to repository, sir."
     else Git Execution Failed
         n8n->>Speak: cd "..." && python speak.py --intent-error
-        Speak-->>User: Spoken Response: "Task failed: Could not push to GitHub, sir."
+        Speak-->>User: Neural Spoken Response: "Task failed: Could not push to GitHub, sir."
     end
 ```
 
@@ -51,8 +51,11 @@ sequenceDiagram
    - **Dynamic Silero VAD**: Automatically stops recording when trailing silence >= 600ms (no more fixed waits!).
    - **Multipart Webhook Dispatch**: Posts to `http://localhost:5678/webhook/jarvis-git`.
 2. [`speak.py`](file:///c:/Users/gansk/OneDrive/Desktop/Jarvis%20github/speak.py):
+   - **Neural AI TTS Engine**: Uses `edge-tts` with the `en-US-ChristopherNeural` voice for a deep, cinematic Jarvis tone.
+   - **Audio Player**: Glitch-free playback via `pygame.mixer`.
+   - **Offline Fallbacks**: Native Windows PowerShell SAPI5 and `pyttsx3`.
    - **Asynchronous Queue Engine**: CLI commands return in <20ms while background worker speaks announcements in order without overlap or cutting each other off.
-   - **Flags**: `--intent-start`, `--intent-success`, `--intent-error`, `--file <path>`.
+   - **Flags**: `--intent-start`, `--intent-success`, `--intent-error`, `--file <path>`, `--direct`.
 3. [`transcribe.py`](file:///c:/Users/gansk/OneDrive/Desktop/Jarvis%20github/transcribe.py):
    - Primary: Groq Cloud API `whisper-large-v3-turbo` for sub-100ms transcription.
    - Fallback: Local `faster-whisper` (`tiny.en`, `int8`).
