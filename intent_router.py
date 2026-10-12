@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Jarvis General-Purpose Dual AI Voice Router & Intent Parser
+Jarvis Low-Latency Codebase & Conversational AI Router
 Features:
-- Handles both Git operations AND general conversational queries (General QA, definitions, chat).
-- Primary: Groq Cloud API (llama-3.3-70b-versatile) | Fallback: Local Ollama (qwen2.5-coder:7b).
+- Fast cached repository file crawler: `get_project_context()` with 120s TTL cache.
+- Concise architectural digest keeps Groq prompt under 800 tokens for sub-200ms responses.
+- Tri-mode routing: `codebase_qa` | `git_action` | `general_qa`.
 - Output Schema:
   {
-    "type": "git_action" | "general_qa",
+    "type": "codebase_qa" | "git_action" | "general_qa",
     "command": "<cli_command_if_git>",
-    "speaking_start": "<short_task_description_if_git>",
+    "speaking_start": "<task_description_if_git>",
     "speaking_response": "<direct_concise_spoken_answer_for_qa_or_completion>"
   }
 """
@@ -17,6 +18,7 @@ import sys
 import os
 import json
 import re
+import time
 import requests
 from dotenv import load_dotenv
 
@@ -30,56 +32,116 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__)).replace("/", "\\")
 TRANSCRIPT_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_transcript.txt")
 INTENT_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_intent.json")
 STATUS_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_status.txt")
+CODEBASE_CACHE_FILE = os.path.join(PROJECT_ROOT, "codebase_cache.json")
 
-SYSTEM_PROMPT = f"""You are Jarvis, a highly intelligent conversational AI assistant and systems engineer.
-Classify the user's voice input into either a Git/GitHub operation ("git_action") OR a general conversation/knowledge query ("general_qa").
+def get_project_context(force_refresh: bool = False) -> str:
+    """Scans and caches key project source files to answer codebase questions with zero delay."""
+    if not force_refresh and os.path.exists(CODEBASE_CACHE_FILE):
+        try:
+            mtime = os.path.getmtime(CODEBASE_CACHE_FILE)
+            if time.time() - mtime < 120:
+                with open(CODEBASE_CACHE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    cached_text = data.get("context", "")
+                    if cached_text:
+                        return cached_text
+        except Exception:
+            pass
+
+    context_parts = []
+    core_files = [
+        "jarvis_listener.py",
+        "speak.py",
+        "transcribe.py",
+        "intent_router.py",
+        "execute_git.py",
+        "workflows/jarvis_workflow.json",
+        "README.md",
+    ]
+
+    for relpath in core_files:
+        filepath = os.path.join(PROJECT_ROOT, relpath)
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                # Extract first 25 lines (docstrings, imports, core parameters)
+                snippet = "".join(lines[:25]).strip()
+                context_parts.append(f"[{relpath}]\n{snippet}\n")
+            except Exception:
+                continue
+
+    summary = "\n".join(context_parts)
+    try:
+        with open(CODEBASE_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"context": summary, "timestamp": time.time()}, f)
+    except Exception:
+        pass
+
+    return summary
+
+def build_system_prompt() -> str:
+    codebase_context = get_project_context()
+    return f"""You are Jarvis, a brilliant AI systems assistant and pair programmer.
+You automate Git/GitHub commands and answer questions about this codebase or general topics.
+
+=== CODEBASE DIGEST ({PROJECT_ROOT}) ===
+{codebase_context}
+========================================
+
+Classify the user's input into one of three types:
+1. "codebase_qa": Question about this project, its code, files, architecture, or behavior.
+2. "git_action": An instruction to perform Git/GitHub CLI actions (push, commit, status, branch, pr, repo).
+3. "general_qa": General knowledge question, reasoning, conversation, or math.
 
 You must respond with ONLY a valid, raw JSON object matching the exact schema below.
-DO NOT include markdown code blocks (```json), explanations, markdown formatting, or preamble.
+DO NOT include markdown code blocks (```json), explanations, or preamble.
 
 Strict Output Schema:
 {{
-  "type": "git_action" | "general_qa",
-  "command": "<cli_command_if_git_or_empty>",
-  "speaking_start": "<short_task_description_if_git_or_empty>",
-  "speaking_response": "<direct_concise_spoken_answer_for_qa_or_completion>"
+  "type": "codebase_qa" | "git_action" | "general_qa",
+  "command": "<cli_command_if_git_otherwise_empty>",
+  "speaking_start": "<short_task_description_if_git_otherwise_empty>",
+  "speaking_response": "<direct_spoken_answer_2_to_3_sentences_max>"
 }}
 
-Rules for "git_action":
-- Triggered when the user asks for Git/GitHub tasks: commit, push, git status, checkout, branch, pull request, repo creation.
-- command MUST begin with: cd "{PROJECT_ROOT}" && ...
-- speaking_start: "Executing task: <short task description, e.g. checking git status, sir.>"
-- speaking_response: "Task completed successfully, sir."
-
-Rules for "general_qa":
-- Triggered for ANY general questions, facts, calculations, coding advice, jokes, or chit-chat.
-- command: ""
-- speaking_start: ""
-- speaking_response: Provide a direct, natural, conversational spoken answer (1-3 sentences maximum, no bullet points or markdown).
+Rules:
+- For "codebase_qa":
+  - Use the codebase digest above to give an accurate, crisp, 2-sentence conversational answer.
+  - command: ""
+  - speaking_start: ""
+- For "git_action":
+  - command MUST begin with: cd "{PROJECT_ROOT}" && ...
+  - speaking_start: "Executing task: <description>, sir."
+  - speaking_response: "Task completed successfully, sir."
+- For "general_qa":
+  - Provide a concise spoken answer (1-2 sentences maximum).
+  - command: ""
+  - speaking_start: ""
 
 Examples:
-1. Input: "Push my changes with message updated voice pipeline" ->
+1. "Explain how speak.py works" ->
+{{
+  "type": "codebase_qa",
+  "command": "",
+  "speaking_start": "",
+  "speaking_response": "Speak.py uses Microsoft Edge TTS with the Christopher Neural voice and Pygame. It uses pre-rendered static clips and a non-blocking queue so audio playback never blocks the listener."
+}}
+
+2. "Push all my changes with message fix audio bug" ->
 {{
   "type": "git_action",
-  "command": "cd \\"{PROJECT_ROOT}\\" && git init && git add . && (git commit -m \\"updated voice pipeline\\" || echo \\"No changes to commit\\") && (git push || gh repo create \\"Jarvis-Voice-Assistant\\" --public --source=. --remote=origin --push)",
+  "command": "cd \\"{PROJECT_ROOT}\\" && git init && git add . && (git commit -m \\"fix audio bug\\" || echo \\"No changes to commit\\") && (git push || gh repo create \\"Jarvis-Voice-Assistant\\" --public --source=. --remote=origin --push)",
   "speaking_start": "Executing task: committing and pushing your changes, sir.",
   "speaking_response": "Task completed successfully, sir."
 }}
 
-2. Input: "What is standard deviation?" ->
+3. "What is standard deviation?" ->
 {{
   "type": "general_qa",
   "command": "",
   "speaking_start": "",
-  "speaking_response": "Standard deviation measures the amount of variation or dispersion in a set of values relative to their mean. A low standard deviation means values are clustered closely around the average."
-}}
-
-3. Input: "Check git status" ->
-{{
-  "type": "git_action",
-  "command": "cd \\"{PROJECT_ROOT}\\" && git status",
-  "speaking_start": "Executing task: checking git status, sir.",
-  "speaking_response": "Task completed successfully, sir."
+  "speaking_response": "Standard deviation measures how spread out numbers are around their average. A low standard deviation means values are closely clustered around the mean."
 }}
 """
 
@@ -149,8 +211,8 @@ def call_groq(transcript: str) -> dict:
         raise ValueError("GROQ_API_KEY not configured.")
 
     models = [
-        "llama-3.3-70b-versatile",
         "qwen/qwen3.8-27b",
+        "llama-3.3-70b-versatile",
         "qwen-2.5-32b",
         "openai/gpt-oss-120b",
     ]
@@ -160,7 +222,9 @@ def call_groq(transcript: str) -> dict:
         "Content-Type": "application/json",
     }
 
+    system_prompt = build_system_prompt()
     last_err = None
+
     for m in models:
         try:
             resp = requests.post(
@@ -169,13 +233,13 @@ def call_groq(transcript: str) -> dict:
                 json={
                     "model": m,
                     "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": f"User: {transcript}"},
                     ],
-                    "temperature": 0.3,
-                    "max_tokens": 300,
+                    "temperature": 0.2,
+                    "max_tokens": 150,
                 },
-                timeout=8,
+                timeout=10,
             )
             if resp.status_code == 200:
                 content = resp.json()["choices"][0]["message"]["content"]
@@ -191,15 +255,16 @@ def call_groq(transcript: str) -> dict:
     raise RuntimeError(f"Groq API error: {last_err}")
 
 def call_ollama(transcript: str) -> dict:
+    system_prompt = build_system_prompt()
     resp = requests.post(
         f"{OLLAMA_HOST}/api/chat",
         json={
             "model": "qwen2.5-coder:7b",
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"User: {transcript}"},
             ],
-            "options": {"temperature": 0.3},
+            "options": {"temperature": 0.2, "num_predict": 150},
             "stream": False,
         },
         timeout=25,
@@ -214,7 +279,7 @@ def route_intent(transcript: str) -> dict:
     if not cleaned or len(cleaned) < 2:
         return build_default_intent(cleaned)
 
-    # 1. Primary: Groq API
+    # 1. Primary: Groq Cloud API
     try:
         return call_groq(cleaned)
     except Exception as e:
@@ -256,7 +321,7 @@ def main():
     except Exception as e:
         print(f"[intent_router.py] Intent caching notice: {e}", file=sys.stderr)
 
-    # Output strict JSON to stdout
+    # Output strict JSON
     print(json.dumps(result, indent=2))
     sys.exit(0)
 

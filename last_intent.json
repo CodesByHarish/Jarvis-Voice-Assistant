@@ -1,6 +1,6 @@
 {
   "type": "git_action",
-  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"updated voice pipeline\" || echo \"No changes to commit\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)",
-  "speaking_start": "Executing task: committing and pushing your changes, sir.",
+  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"Automated update via Jarvis\" || echo \"No changes to commit\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)",
+  "speaking_start": "Executing task: committing and pushing changes, sir.",
   "speaking_response": "Task completed successfully, sir."
 }
