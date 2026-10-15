@@ -22,3 +22,13 @@ Thumbs.db
 .vscode/
 .idea/
 node_modules/
+
+# Jarvis Runtime & Cache files
+recorded_command.wav
+last_transcript.txt
+last_intent.json
+last_status.txt
+codebase_cache.json
+temp_speech*.mp3
+speech_queue.txt
+

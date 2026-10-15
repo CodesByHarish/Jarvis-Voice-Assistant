@@ -50,6 +50,19 @@ def launch_hud_interface():
     hud_script = os.path.join(PROJECT_ROOT, "jarvis_hud.py")
     if os.path.exists(hud_script):
         try:
+            import psutil
+            for p in psutil.process_iter(['cmdline']):
+                try:
+                    cmdline = p.info.get('cmdline') or []
+                    if any("jarvis_hud.py" in arg for arg in cmdline):
+                        print("[Jarvis] Sci-Fi HUD is already running.")
+                        return
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception:
+            pass
+
+        try:
             subprocess.Popen([sys.executable, hud_script], cwd=PROJECT_ROOT)
             print("[Jarvis] Sci-Fi HUD Desktop Interface launched in background.")
         except Exception as e:
