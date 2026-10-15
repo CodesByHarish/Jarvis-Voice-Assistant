@@ -267,6 +267,36 @@ def build_default_intent(transcript: str) -> dict:
             "speaking_response": "I am standing by, sir. How may I assist you?",
         }
 
+def clean_spoken_text(text: str) -> str:
+    """Strips markdown asterisks, backticks, hashes, and formatting for clear TTS."""
+    if not text:
+        return ""
+    # Strip markdown code blocks
+    t = re.sub(r"```(?:[a-zA-Z0-9_\-]+)?\s*.*?\s*```", "", text, flags=re.DOTALL)
+    # Strip inline code formatting `code`
+    t = re.sub(r"`([^`]+)`", r"\1", t)
+    # Strip markdown bold / italics
+    t = re.sub(r"\*\*([^*]+)\*\*", r"\1", t)
+    t = re.sub(r"\*([^*]+)\*", r"\1", t)
+    t = re.sub(r"__([^_]+)__", r"\1", t)
+    t = re.sub(r"_([^_]+)_", r"\1", t)
+    # Strip markdown headers, blockquotes, bullets
+    t = re.sub(r"^#+\s*", "", t, flags=re.MULTILINE)
+    t = re.sub(r"^>\s*", "", t, flags=re.MULTILINE)
+    t = re.sub(r"^[\*\-\+]\s+", "", t, flags=re.MULTILINE)
+    # Strip markdown links [text](url) -> text
+    t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
+    # Clean whitespace and newlines
+    t = re.sub(r"[\r\n]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+
+    # Limit to 2 concise sentences max for optimal voice delivery
+    sentences = re.split(r'(?<=[.!?])\s+', t)
+    if len(sentences) > 2:
+        t = " ".join(sentences[:2]).strip()
+
+    return t
+
 def sanitize_json(raw_text: str, transcript: str) -> dict:
     clean = raw_text.strip()
     clean = re.sub(r"^```(?:json)?\s*", "", clean, flags=re.MULTILINE)
@@ -287,13 +317,27 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
     cmd = str(data.get("command", "")).strip()
     cd_prefix = f'cd "{PROJECT_ROOT}"'
 
+    target_file = str(data.get("target_file", "")).strip()
+    if req_type == "antigravity_task" and not target_file:
+        target_file = extract_target_file(transcript)
+
+    raw_resp = str(data.get("speaking_response", ""))
+    speaking_resp = clean_spoken_text(raw_resp)
+    if not speaking_resp:
+        if req_type == "codebase_qa":
+            speaking_resp = "Codebase analysis complete, sir. Standing by for instructions."
+        elif req_type == "git_action":
+            speaking_resp = "Git task completed successfully, sir."
+        elif req_type == "antigravity_task":
+            speaking_resp = f"Task completed, sir. Antigravity has resolved the issue in {target_file}."
+        else:
+            speaking_resp = "I am standing by, sir. How may I assist you?"
+
     if req_type == "antigravity_task":
-        target_file = str(data.get("target_file", "")).strip() or extract_target_file(transcript)
         action = str(data.get("action", "bug_fix")).strip() or "bug_fix"
         task_desc = str(data.get("task_description", transcript)).strip()
-        start = str(data.get("speaking_start", f"Delegating task to Antigravity: fixing bug in {target_file}, sir."))
-        prog = str(data.get("speaking_progress", f"Antigravity is reading {target_file} and applying code patches..."))
-        resp = str(data.get("speaking_response", f"Task completed, sir. Antigravity has resolved the issue in {target_file}."))
+        start = clean_spoken_text(str(data.get("speaking_start", f"Delegating task to Antigravity: fixing bug in {target_file}, sir.")))
+        prog = clean_spoken_text(str(data.get("speaking_progress", f"Antigravity is reading {target_file} and applying code patches...")))
         if not cmd:
             cmd = f'{cd_prefix} && python execute_agent.py antigravity_task.json'
         elif not cmd.startswith("cd "):
@@ -307,12 +351,15 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
             "command": cmd,
             "speaking_start": start,
             "speaking_progress": prog,
-            "speaking_response": resp,
+            "speaking_response": speaking_resp,
         }
 
     if req_type == "git_action":
         if not cmd.startswith("cd "):
             cmd = f'{cd_prefix} && {cmd}' if cmd else f'{cd_prefix} && git status'
+
+    start = clean_spoken_text(str(data.get("speaking_start", "")))
+    prog = clean_spoken_text(str(data.get("speaking_progress", "")))
 
     return {
         "type": req_type,
@@ -320,9 +367,9 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
         "target_file": str(data.get("target_file", "")),
         "task_description": str(data.get("task_description", "")),
         "command": cmd,
-        "speaking_start": str(data.get("speaking_start", "")),
-        "speaking_progress": str(data.get("speaking_progress", "")),
-        "speaking_response": str(data.get("speaking_response", "Task completed successfully, sir.")),
+        "speaking_start": start,
+        "speaking_progress": prog,
+        "speaking_response": speaking_resp,
     }
 
 def call_groq(transcript: str) -> dict:

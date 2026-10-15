@@ -109,7 +109,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"$json.speaking_response\""
       },
       "id": "announce-git-done-cmd",
       "name": "Announce Git Completion",
@@ -182,7 +182,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"$json.speaking_response\""
       },
       "id": "announce-ag-done-cmd",
       "name": "Announce Antigravity Done",
@@ -195,7 +195,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"$json.speaking_response\""
       },
       "id": "speak-qa-answer-cmd",
       "name": "Speak QA Answer",
@@ -363,7 +363,7 @@
       ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1"
   },

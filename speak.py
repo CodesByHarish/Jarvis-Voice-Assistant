@@ -2,33 +2,58 @@
 """
 Jarvis Ultra-Low Latency Neural AI Speech Engine
 Features:
-- Pre-generates and caches static audio clips: `on_it.mp3` ("On it, sir.") & `listening.mp3` ("Listening, sir.").
-- Pre-warmed 24kHz pygame.mixer for sub-50ms instant audio playback.
-- Dynamic edge-tts synthesis (en-US-ChristopherNeural) for custom conversational responses.
-- Supports direct audio playback of pre-rendered clips and queued dynamic announcements.
-- CLI Flags: --file <path>, --intent-start, --intent-response, --intent-success, --intent-error, --init.
+- Instant playback of pre-rendered static clips: `on_it.mp3` & `listening.mp3`.
+- Unique collision-free temporary audio files (`temp_speech_<timestamp>_<uuid>.mp3`).
+- Explicit stream release and automatic temp file deletion.
+- Background process console logging: `[TTS] Speaking: <text>`.
+- Supports CLI flags: --intent-response, --intent-start, --intent-progress, --intent-error, --init, or raw text string.
 """
 
 import sys
 import os
 import time
 import json
+import uuid
 import asyncio
-import subprocess
+import re
 
 # Suppress Pygame welcome banner
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-QUEUE_FILE = os.path.join(PROJECT_ROOT, "speech_queue.txt")
-LOCK_FILE = os.path.join(PROJECT_ROOT, "speech.lock")
 INTENT_FILE = os.path.join(PROJECT_ROOT, "last_intent.json")
-TEMP_SPEECH_FILE = os.path.join(PROJECT_ROOT, "temp_speech.mp3")
 
 ON_IT_AUDIO = os.path.join(PROJECT_ROOT, "on_it.mp3")
 LISTENING_AUDIO = os.path.join(PROJECT_ROOT, "listening.mp3")
 
 NEURAL_VOICE = "en-US-ChristopherNeural"
+
+def cleanup_old_temp_files():
+    """Sweeps and deletes old temporary audio files to keep directory clean."""
+    try:
+        for fname in os.listdir(PROJECT_ROOT):
+            if fname.startswith("temp_speech") and fname.endswith(".mp3"):
+                fpath = os.path.join(PROJECT_ROOT, fname)
+                try:
+                    # Remove files older than 20 seconds
+                    if time.time() - os.path.getmtime(fpath) > 20:
+                        os.remove(fpath)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+def cleanup_file(filepath: str):
+    """Safely removes a specific audio file after playback."""
+    if not filepath or filepath in [ON_IT_AUDIO, LISTENING_AUDIO]:
+        return
+    for _ in range(5):
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            break
+        except Exception:
+            time.sleep(0.05)
 
 async def generate_speech_audio(text: str, output_path: str):
     """Renders speech using edge-tts with the Christopher Neural voice."""
@@ -56,7 +81,7 @@ def ensure_static_audio():
                 print(f"[speak.py] Static clip generation warning ({os.path.basename(path)}): {e}", file=sys.stderr)
 
 def play_audio_file(audio_path: str):
-    """Plays audio via pre-warmed 24kHz pygame mixer and releases lock immediately."""
+    """Plays audio via pre-warmed 24kHz pygame mixer and releases stream immediately."""
     if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
         return
 
@@ -74,17 +99,40 @@ def play_audio_file(audio_path: str):
             pygame.mixer.music.unload()
         pygame.mixer.quit()
     except Exception as e:
-        print(f"[speak.py] Playback notice: {e}", file=sys.stderr)
+        print(f"[TTS] Playback notice: {e}", file=sys.stderr)
         try:
             pygame.mixer.quit()
         except Exception:
             pass
+    finally:
+        cleanup_file(audio_path)
+
+def clean_spoken_text(text: str) -> str:
+    """Strips markdown asterisks, backticks, hashes, and formatting for clear TTS."""
+    if not text:
+        return ""
+    t = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    t = re.sub(r"`([^`]+)`", r"\1", t)
+    t = re.sub(r"\*\*([^*]+)\*\*", r"\1", t)
+    t = re.sub(r"\*([^*]+)\*", r"\1", t)
+    t = re.sub(r"__([^_]+)__", r"\1", t)
+    t = re.sub(r"_([^_]+)_", r"\1", t)
+    t = re.sub(r"^#+\s*", "", t, flags=re.MULTILINE)
+    t = re.sub(r"^>\s*", "", t, flags=re.MULTILINE)
+    t = re.sub(r"^[\*\-\+]\s+", "", t, flags=re.MULTILINE)
+    t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
+    t = re.sub(r"[\r\n]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
 def speak_direct(text: str):
     """Speaks text: plays pre-rendered MP3 if available, otherwise generates dynamic speech."""
-    clean = text.strip()
+    clean = clean_spoken_text(text.strip())
     if not clean:
         return
+
+    # Logging to console
+    print(f"[TTS] Speaking: {clean}", flush=True)
 
     # Check for direct audio file requests or known phrases
     if clean.lower() in ["on it, sir.", "on it", "on_it.mp3"]:
@@ -96,104 +144,38 @@ def speak_direct(text: str):
             play_audio_file(LISTENING_AUDIO)
             return
 
-    # Dynamic synthesis
-    print(f"[Jarvis Neural Voice]: {clean}")
+    # Clean old leftover temp files before synthesizing new audio
+    cleanup_old_temp_files()
+
+    # Generate collision-free unique temporary MP3
+    unique_tag = f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    temp_audio_file = os.path.join(PROJECT_ROOT, f"temp_speech_{unique_tag}.mp3")
+
     try:
-        asyncio.run(generate_speech_audio(clean, TEMP_SPEECH_FILE))
-        play_audio_file(TEMP_SPEECH_FILE)
+        asyncio.run(generate_speech_audio(clean, temp_audio_file))
+        play_audio_file(temp_audio_file)
     except Exception as e:
-        print(f"[speak.py] edge-tts error: {e}", file=sys.stderr)
-
-def run_worker():
-    """Background worker draining queued phrases sequentially."""
-    try:
-        with open(LOCK_FILE, "w", encoding="utf-8") as f:
-            f.write(str(os.getpid()))
-    except Exception:
-        pass
-
-    try:
-        while True:
-            phrase = None
-            if os.path.exists(QUEUE_FILE):
-                try:
-                    with open(QUEUE_FILE, "r", encoding="utf-8") as f:
-                        lines = [line.strip() for line in f if line.strip()]
-                    if lines:
-                        phrase = lines[0]
-                        with open(QUEUE_FILE, "w", encoding="utf-8") as f:
-                            for remaining in lines[1:]:
-                                f.write(remaining + "\n")
-                except Exception:
-                    time.sleep(0.03)
-                    continue
-
-            if phrase:
-                speak_direct(phrase)
-                time.sleep(0.06)
-            else:
-                break
-    finally:
-        try:
-            if os.path.exists(LOCK_FILE):
-                os.remove(LOCK_FILE)
-        except Exception:
-            pass
-
-def is_worker_active() -> bool:
-    """Checks if background speech daemon is running."""
-    if not os.path.exists(LOCK_FILE):
-        return False
-    try:
-        with open(LOCK_FILE, "r", encoding="utf-8") as f:
-            pid_str = f.read().strip()
-        if not pid_str:
-            return False
-        pid = int(pid_str)
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if handle:
-            kernel32.CloseHandle(handle)
-            return True
-        return False
-    except Exception:
-        return False
-
-def enqueue_phrase(text: str):
-    """Appends phrase to queue and triggers background worker."""
-    clean = text.strip()
-    if not clean:
-        return
-
-    with open(QUEUE_FILE, "a", encoding="utf-8") as f:
-        f.write(clean + "\n")
-
-    if not is_worker_active():
-        python_bin = sys.executable
-        subprocess.Popen(
-            [python_bin, os.path.abspath(__file__), "--worker"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            shell=False,
-            close_fds=True,
-        )
+        print(f"[TTS] edge-tts error: {e}", file=sys.stderr)
+        cleanup_file(temp_audio_file)
 
 def resolve_phrase_from_args() -> str:
-    """Resolves target phrase from CLI flags or intent files."""
+    """Resolves target phrase from CLI flags, intent files, or string arguments."""
     args = sys.argv[1:]
     if not args:
         return "Neural AI speech engine is online, sir."
 
-    if args[0] == "--file" and len(args) > 1:
+    first_arg = args[0].strip()
+
+    # File flag
+    if first_arg == "--file" and len(args) > 1:
         path = args[1]
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 return f.read().strip()
         return ""
 
-    if args[0] == "--intent-start":
+    # Intent flags
+    if first_arg == "--intent-start":
         if os.path.exists(INTENT_FILE):
             try:
                 with open(INTENT_FILE, "r", encoding="utf-8") as f:
@@ -203,7 +185,7 @@ def resolve_phrase_from_args() -> str:
                 return ""
         return ""
 
-    if args[0] in ["--intent-response", "--intent-success"]:
+    if first_arg in ["--intent-response", "--intent-success"]:
         if os.path.exists(INTENT_FILE):
             try:
                 with open(INTENT_FILE, "r", encoding="utf-8") as f:
@@ -213,7 +195,7 @@ def resolve_phrase_from_args() -> str:
                 return "Task completed successfully, sir."
         return "Task completed successfully, sir."
 
-    if args[0] == "--intent-progress":
+    if first_arg == "--intent-progress":
         if os.path.exists(INTENT_FILE):
             try:
                 with open(INTENT_FILE, "r", encoding="utf-8") as f:
@@ -223,7 +205,7 @@ def resolve_phrase_from_args() -> str:
                 return ""
         return ""
 
-    if args[0] == "--intent-error":
+    if first_arg == "--intent-error":
         if os.path.exists(INTENT_FILE):
             try:
                 with open(INTENT_FILE, "r", encoding="utf-8") as f:
@@ -233,26 +215,43 @@ def resolve_phrase_from_args() -> str:
                 return "Task failed, sir."
         return "Task failed, sir."
 
-    return " ".join(args).strip()
+    # Handle unexpanded or literal n8n/powershell expression "$json.speaking_response" / ".speaking_response"
+    raw_joined = " ".join(args).strip()
+    if raw_joined in [
+        "$json.speaking_response",
+        '"$json.speaking_response"',
+        ".speaking_response",
+        '".speaking_response"',
+        "$json",
+        ""
+    ]:
+        if os.path.exists(INTENT_FILE):
+            try:
+                with open(INTENT_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return data.get("speaking_response", "Task completed, sir.")
+            except Exception:
+                return "Task completed, sir."
+        return "Task completed, sir."
+
+    # If argument contains JSON
+    if raw_joined.startswith("{") and raw_joined.endswith("}"):
+        try:
+            parsed = json.loads(raw_joined)
+            return parsed.get("speaking_response", parsed.get("text", raw_joined))
+        except Exception:
+            pass
+
+    return raw_joined
 
 def main():
     if "--init" in sys.argv:
         ensure_static_audio()
         sys.exit(0)
 
-    if "--worker" in sys.argv:
-        run_worker()
-        sys.exit(0)
-
-    if "--direct" in sys.argv:
-        remaining = [a for a in sys.argv[1:] if a != "--direct"]
-        text = " ".join(remaining) if remaining else "Neural AI speech engine is online, sir."
-        speak_direct(text)
-        sys.exit(0)
-
     phrase = resolve_phrase_from_args()
     if phrase:
-        enqueue_phrase(phrase)
+        speak_direct(phrase)
     sys.exit(0)
 
 if __name__ == "__main__":
