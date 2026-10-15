@@ -120,310 +120,10 @@ def is_antigravity_intent(transcript: str) -> bool:
             return True
     return any(w in t for w in ANTIGRAVITY_TRIGGER_KEYWORDS)
 
-def get_current_active_branch(repo_path: str = PROJECT_ROOT) -> str:
-    """Inspects current active branch dynamically using git rev-parse --abbrev-ref HEAD."""
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True
-        )
-        if proc.returncode == 0:
-            b = proc.stdout.strip()
-            if b and b != "HEAD":
-                return b
-    except Exception:
-        pass
-    return "master"
-
-def inspect_branch_status(branch_name: str, repo_path: str = PROJECT_ROOT) -> tuple[bool, bool]:
-    """
-    Inspects whether branch exists locally using `git branch --list <branch_name>`
-    and whether it exists on remote using `git branch -r --list origin/<branch_name>`.
-    Returns (exists_locally, exists_remotely).
-    """
-    clean_name = branch_name.strip()
-    if not clean_name:
-        return False, False
-    try:
-        proc_local = subprocess.run(
-            ["git", "branch", "--list", clean_name],
-            cwd=repo_path,
-            capture_output=True,
-            text=True
-        )
-        exists_locally = bool(proc_local.stdout.strip())
-    except Exception:
-        exists_locally = False
-
-    try:
-        proc_remote = subprocess.run(
-            ["git", "branch", "-r", "--list", f"origin/{clean_name}"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True
-        )
-        exists_remotely = bool(proc_remote.stdout.strip())
-    except Exception:
-        exists_remotely = False
-
-    return exists_locally, exists_remotely
-
-def is_checkout_master(transcript: str) -> bool:
-    """Detects commands requesting switching or checking out master branch."""
-    t = transcript.lower().strip()
-    if is_merge_action(t):
-        return False
-    patterns = [
-        r'\b(?:switch|checkout|go)\s+(?:in)?to\s+(?:the\s+)?master(?:\s+branch)?\b',
-        r'\bcheckout\s+master\b',
-        r'\bswitch\s+to\s+master\b',
-        r'\bgo\s+to\s+master(?:\s+branch)?\b',
-        r'\b(?:switch|checkout)\s+(?:to\s+)?branch\s+master\b',
-    ]
-    return any(re.search(p, t) for p in patterns)
-
-def is_explicit_branch_creation(transcript: str) -> bool:
-    """Detects explicit branch creation requests (e.g. 'create branch foo', 'make new branch bar')."""
-    t = transcript.lower().strip()
-    if is_merge_action(t) or is_checkout_master(t):
-        return False
-    patterns = [
-        r'\b(?:create|make|new)\s+(?:a\s+)?branch\b',
-        r'\bcheckout\s+-b\b',
-        r'\bbranch\s+(?:create|make|new)\b',
-    ]
-    return any(re.search(p, t) for p in patterns)
-
-def is_delete_branch_action(transcript: str) -> bool:
-    """Detects git branch deletion requests (e.g. 'delete branch foo', 'remove branch bar')."""
-    t = transcript.lower().strip()
-    return bool(re.search(r'\b(?:delete|remove)\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t))
-
-def extract_delete_branch(transcript: str) -> str:
-    """Extracts target branch name to delete."""
-    t = transcript.strip()
-    m = re.search(r'\b(?:delete|remove)\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m:
-        b = m.group(1).strip()
-        if b.lower() not in ["the", "this", "my", "branch"]:
-            return b
-    return ""
-
-def is_merge_action(transcript: str) -> bool:
-    """Detects commands requesting merging, syncing, or integrating two branches."""
-    t = transcript.lower().strip()
-    if re.search(r'\b(?:merge|sync|integrate)\b.*?\b(?:in)?to\b', t):
-        return True
-    if re.search(r'\b(?:merge|sync)\s+(?:branch\s+)?[a-zA-Z0-9_\-\.\/]+\s+with\b', t):
-        return True
-    if re.search(r'\bupdate\s+.*?\s+with\s+.*?\s+changes\b', t):
-        return True
-    if re.search(r'\b(?:merge|sync)\s+(?:branch\s+)?[a-zA-Z0-9_\-\.\/]+\s+(?:in)?to\b', t):
-        return True
-    if re.search(r'\bmerge\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)\b', t) and not any(w in t for w in ["conflict", "abort", "--abort"]):
-        m_merge = re.search(r'\bmerge\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)\b', t)
-        if m_merge and m_merge.group(1).lower() not in ["the", "this", "my", "branch", "code", "changes"]:
-            return True
-    return False
-
-def is_merge_to_master(transcript: str) -> bool:
-    """Helper returning true if merge targets master."""
-    if not is_merge_action(transcript):
-        return False
-    src, tgt = extract_merge_branches(transcript)
-    return tgt.lower() in ["master", "main"]
-
-def extract_merge_branches(transcript: str) -> tuple[str, str]:
-    """
-    Extracts (source_branch, target_branch) for git merge operations.
-    e.g. 'merge feature into master' -> ('feature', 'master')
-         'merge dev into feature' -> ('dev', 'feature')
-         'merge feature with master' -> ('feature', 'master')
-         'sync feature-branch to master' -> ('feature-branch', 'master')
-         'update master branch with feature changes' -> ('feature', 'master')
-    """
-    t = transcript.strip()
-
-    # 1. Pattern: "merge <source> into/to <target>"
-    m1 = re.search(r'(?:merge|sync|integrate)\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)(?:\s+branch)?\s+(?:in)?to\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m1:
-        src = m1.group(1).strip()
-        tgt = m1.group(2).strip()
-        if src.lower() in ["the", "this", "current", "active"]:
-            src = get_current_active_branch()
-        return src, tgt
-
-    # 2. Pattern: "merge <source> with <target>"
-    m1_with = re.search(r'(?:merge|sync)\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)(?:\s+branch)?\s+with\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m1_with:
-        src = m1_with.group(1).strip()
-        tgt = m1_with.group(2).strip()
-        return src, tgt
-
-    # 3. Pattern: "update <target> [branch] with <source> changes"
-    m2 = re.search(r'update\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)(?:\s+branch)?\s+with\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m2:
-        tgt = m2.group(1).strip()
-        src = m2.group(2).strip()
-        if src.lower() in ["the", "this", "my"]:
-            src = get_current_active_branch()
-        return src, tgt
-
-    # 4. Pattern: "merge into <target>"
-    m3 = re.search(r'merge\s+(?:changes\s+)?(?:in)?to\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m3:
-        tgt = m3.group(1).strip()
-        active = get_current_active_branch()
-        src = active if (active and active.lower() != tgt.lower()) else "feature-branch"
-        return src, tgt
-
-    # 5. Pattern: "merge <source>" (e.g. "merge feature")
-    m4 = re.search(r'merge\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m4:
-        src = m4.group(1).strip()
-        if src.lower() not in ["the", "this", "my", "changes", "branch", "code", "into", "to", "with"]:
-            active = get_current_active_branch()
-            tgt = active if (active and active.lower() != src.lower()) else "master"
-            return src, tgt
-
-    # Fallback: active branch into master
-    active = get_current_active_branch()
-    src = active if (active and active.lower() not in ["master", "main"]) else "feature-branch"
-    return src, "master"
-
-def extract_merge_source_branch(transcript: str) -> str:
-    """Wrapper returning source branch for merge."""
-    src, _ = extract_merge_branches(transcript)
-    return src
-
-def is_pull_action(transcript: str) -> bool:
-    """Detects commands requesting git pull from a specific branch or remote."""
-    t = transcript.lower().strip()
-    if is_merge_action(t):
-        return False
-    patterns = [
-        r'\bpull\s+(?:from|origin|latest|code|changes)\b',
-        r'\bgit\s+pull\b',
-        r'\bpull\s+(?:branch\s+)?[a-zA-Z0-9_\-\.\/]+',
-        r'\bpull\b',
-    ]
-    return any(re.search(p, t) for p in patterns)
-
-def extract_pull_source_branch(transcript: str) -> str:
-    """Extracts target branch to pull from (e.g. 'pull from master', 'pull from feature-branch')."""
-    t = transcript.strip()
-    m = re.search(r'\bpull\s+(?:latest\s+)?(?:code\s+|changes\s+)?(?:from\s+|origin\s+)?(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m:
-        b = m.group(1).strip()
-        if b.lower() not in ["the", "my", "this", "changes", "code", "latest", "origin", "remote", "repo", "github"]:
-            return b
-
-    m2 = re.search(r'\bfrom\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m2:
-        b2 = m2.group(1).strip()
-        if b2.lower() not in ["the", "my", "this", "origin", "remote", "github"]:
-            return b2
-
-    if "master" in t.lower():
-        return "master"
-    if "feature-branch" in t.lower():
-        return "feature-branch"
-    if "feature" in t.lower():
-        return "feature"
-    if "updated" in t.lower():
-        return "updated"
-
-    active = get_current_active_branch()
-    return active if active else "master"
-
-def is_branch_switch(transcript: str) -> bool:
-    """Detects general branch switching or checkout requests."""
-    t = transcript.lower().strip()
-    if is_merge_action(t) or is_checkout_master(t) or is_pull_action(t) or is_delete_branch_action(t):
-        return False
-    patterns = [
-        r'\b(?:switch|checkout|go)\s+(?:in)?to\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)',
-        r'\b(?:switch|checkout)\s+branch\s+([a-zA-Z0-9_\-\.\/]+)',
-    ]
-    return any(re.search(p, t) for p in patterns)
-
 def is_branch_creation(transcript: str) -> bool:
-    """Detects git branch creation or switching requests (legacy wrapper)."""
-    return is_explicit_branch_creation(transcript) or is_branch_switch(transcript)
-
-def extract_commit_message(transcript: str) -> str:
-    """Extracts custom commit message from user transcript if provided."""
-    t = transcript.strip()
-    patterns = [
-        r'(?:commit|push)\s+(?:with\s+)?(?:the\s+)?message\s+[\'"]?([^\'"]+)[\'"]?',
-        r'message\s+[\'"]?([^\'"]+)[\'"]?',
-    ]
-    for p in patterns:
-        m = re.search(p, t, re.IGNORECASE)
-        if m:
-            msg = m.group(1).strip()
-            msg = re.sub(r'\s+and\s+push.*$', '', msg, flags=re.IGNORECASE)
-            msg = re.sub(r'[,.]?\s*sir\.?$', '', msg, flags=re.IGNORECASE).strip()
-            if msg and len(msg) > 1:
-                return msg
-    return "Automated update via Jarvis"
-
-def extract_push_target_branch(transcript: str) -> str:
-    """Extracts target branch for git push, supporting specific branches like feature, master, updated."""
-    t = transcript.strip()
-    m = re.search(r'\bpush\s+(?:code\s+)?(?:to|into)\s+(?:origin\s+|remote\s+)?(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m:
-        b = m.group(1).strip()
-        if b.lower() not in ["the", "my", "this", "github", "origin", "remote"]:
-            return b
-        elif b.lower() in ["github", "origin", "remote"]:
-            m_sub = re.search(r'\b(?:github|origin|remote)\s+(?:branch\s+)?([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-            if m_sub and m_sub.group(1).lower() not in ["repo", "repository", "remote", "origin"]:
-                return m_sub.group(1).strip()
-            return "master"
-
-    m2 = re.search(r'\bpush\s+branch\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m2:
-        b2 = m2.group(1).strip()
-        if b2.lower() not in ["the", "my", "this"]:
-            return b2
-
-    m3 = re.search(r'\bto\s+branch\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m3:
-        b3 = m3.group(1).strip()
-        if b3.lower() not in ["the", "my", "this"]:
-            return b3
-
-    if "master" in t.lower():
-        return "master"
-    if "feature-branch" in t.lower():
-        return "feature-branch"
-    if "feature" in t.lower():
-        return "feature"
-    if "updated" in t.lower():
-        return "updated"
-
-    active = get_current_active_branch()
-    return active if active else "master"
-
-def is_commit_or_push(transcript: str) -> bool:
-    """Detects commands requesting git commit, push, or updating master."""
-    t = transcript.lower().strip()
-    if is_merge_action(t) or is_checkout_master(t) or is_pull_action(t) or is_delete_branch_action(t):
-        return False
-    patterns = [
-        r'\b(?:commit|push)\b',
-        r'\bpush\s+(?:code\s+)?to\s+github\b',
-        r'\bupdate\s+master\b',
-    ]
-    return any(re.search(p, t) for p in patterns)
-
-def is_status_or_log_action(transcript: str) -> bool:
-    """Detects git status, diff, or log inquiries."""
-    t = transcript.lower().strip()
-    return bool(re.search(r'\b(?:git\s+status|status|changes|git\s+log|recent\s+commits|commit\s+history)\b', t))
+    """Detects git branch creation requests."""
+    t = transcript.lower()
+    return bool(re.search(r'\b(?:create|make|checkout\s+-b|new)\s+branch\b|\bbranch\s+[a-zA-Z0-9_\-\.\/]+', t))
 
 def check_python_syntax(filepath: str) -> tuple[bool, str, int | None, str]:
     """Runs actual `python -m py_compile <filepath>` to capture real compilation status."""
@@ -464,34 +164,19 @@ def check_python_syntax(filepath: str) -> tuple[bool, str, int | None, str]:
         return False, str(e), None, str(e)
 
 def extract_branch_name(transcript: str) -> str:
-    """Extracts git branch name from user speech without capturing stopwords."""
+    """Extracts git branch name from user speech (e.g. 'create branch feature' -> 'feature')."""
     t = transcript.strip()
-    # e.g. "create branch foo", "switch to branch foo", "checkout branch foo", "go to branch foo"
-    m = re.search(r'(?:create|make|checkout|switch(?:\s+to)?|go(?:\s+to)?|new)\s+(?:a\s+)?branch\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
+    m = re.search(r'(?:create|make|checkout|switch to|new)\s+branch\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
     if m:
-        val = m.group(1).strip()
-        if val.lower() not in ["called", "named", "the", "my", "this", "a", "into"]:
-            return val
-
-    # e.g. "checkout foo", "switch to foo", "go to foo"
-    m_direct = re.search(r'(?:checkout|switch\s+to|go\s+to)\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m_direct:
-        val = m_direct.group(1).strip()
-        if val.lower() not in ["branch", "called", "named", "the", "my", "this", "a", "into"]:
-            return val
-
-    # e.g. "called foo", "named foo"
-    m_name = re.search(r'(?:called|named)\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m_name:
-        return m_name.group(1).strip()
-
-    # e.g. "branch foo"
+        return m.group(1).strip()
     m2 = re.search(r'branch\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
     if m2:
         val = m2.group(1).strip()
-        if val.lower() not in ["and", "to", "called", "named", "the", "my", "this", "changes", "into", "a"]:
+        if val.lower() not in ["and", "to", "called", "named"]:
             return val
-
+    m3 = re.search(r'(?:called|named)\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
+    if m3:
+        return m3.group(1).strip()
     return "feature-branch"
 
 def extract_target_file(transcript: str) -> str:
@@ -566,11 +251,10 @@ Rules:
     command: cd "{PROJECT_ROOT}" && (git checkout -b <branch> 2>nul || git checkout <branch>) && git push -u origin <branch>
     speaking_start: "Creating and pushing branch <branch> to GitHub, sir."
     speaking_response: "Branch <branch> has been created and pushed to GitHub, sir."
-  - For commit and push (e.g. "commit", "push", "push code to github", "update master"):
-    command: cd "{PROJECT_ROOT}" && git add -A && git commit -m "Automated update via Jarvis" --allow-empty-message && git push origin master
-    If user message provided: cd "{PROJECT_ROOT}" && git add -A && git commit -m "<user_message>" && git push origin master
-    speaking_start: "Executing task: committing and pushing changes, sir."
-    speaking_response: "Successfully committed and pushed all changes to GitHub, sir."
+  - For commit and push:
+    command: cd "{PROJECT_ROOT}" && git init && git add . && (git commit -m "<msg>" || echo "No changes to commit") && (git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)
+    speaking_start: "Executing task: committing and pushing your changes, sir."
+    speaking_response: "Task completed successfully, sir."
 - For "general_qa":
   - Provide a concise spoken answer (1-2 sentences maximum).
   - command: "", action: "", target_file: "", speaking_start: "", speaking_progress: ""
@@ -640,176 +324,48 @@ def build_default_intent(transcript: str) -> dict:
             "speaking_response": speaking_response,
         }
 
-    # 2. Branch Deletion Workflow (e.g. "delete branch foo", "remove branch bar")
-    if is_delete_branch_action(transcript):
-        bname = extract_delete_branch(transcript)
-        return {
-            "type": "git_action",
-            "action": "delete_branch",
-            "branch_name": bname,
-            "target_branch": bname,
-            "target_file": "",
-            "task_description": f"Delete branch {bname}",
-            "command": f'{cd_prefix} && git branch -D {bname} && git push origin --delete {bname}',
-            "speaking_start": f"Deleting branch {bname} from local and remote repository, sir.",
-            "speaking_progress": "",
-            "speaking_response": f"Branch {bname} has been deleted from local and remote repository, sir.",
-        }
-
-    # 3. Merging Branches Workflow (e.g. "merge feature into master", "merge dev into feature", "sync feature to master")
-    if is_merge_action(transcript):
-        src, tgt = extract_merge_branches(transcript)
-        spoken_src = "feature branch" if "feature" in src.lower() else src
-        spoken_tgt = "master branch" if "master" in tgt.lower() else tgt
-        return {
-            "type": "git_action",
-            "action": "merge_branches",
-            "source_branch": src,
-            "target_branch": tgt,
-            "target_file": "",
-            "task_description": f"Merge {src} into {tgt} and push",
-            "command": (
-                f'{cd_prefix} && git checkout {tgt} && git pull origin {tgt} && '
-                f'git merge {src} --no-edit && git push origin {tgt}'
-            ),
-            "speaking_start": f"Merging changes from {spoken_src} into {spoken_tgt}, sir.",
-            "speaking_progress": "",
-            "speaking_response": f"Successfully merged changes from {spoken_src} into {spoken_tgt} and pushed to remote GitHub repository, sir.",
-        }
-
-    # 4. Pulling from Specific Branch Workflow (e.g. "pull from master", "pull from feature", "pull origin master")
-    if is_pull_action(transcript):
-        src_b = extract_pull_source_branch(transcript)
-        return {
-            "type": "git_action",
-            "action": "pull_branch",
-            "source_branch": src_b,
-            "target_branch": src_b,
-            "target_file": "",
-            "task_description": f"Pull latest changes from origin/{src_b}",
-            "command": f'{cd_prefix} && git pull origin {src_b}',
-            "speaking_start": f"Pulling latest changes from branch {src_b}, sir.",
-            "speaking_progress": "",
-            "speaking_response": f"Successfully pulled latest code from {src_b}, sir.",
-        }
-
-    # 5. Safe Master Checkout Workflow ("switch to master", "checkout master", "go to master branch")
-    if is_checkout_master(transcript):
-        return {
-            "type": "git_action",
-            "action": "checkout_master",
-            "branch_name": "master",
-            "target_branch": "master",
-            "target_file": "",
-            "task_description": "Switch to master branch and pull latest changes",
-            "command": f'{cd_prefix} && git add -A && git commit -m "Auto-save state" && git checkout master && git pull origin master',
-            "speaking_start": "Switching to master branch, sir.",
-            "speaking_progress": "",
-            "speaking_response": "Switched to master branch and pulled latest changes, sir.",
-        }
-
-    # 6. Branch Switching or Creation
-    if is_explicit_branch_creation(transcript) or is_branch_switch(transcript):
+    # 2. Branch Creation & Push Intent (Strict command: git checkout -b <branch> && git push -u origin <branch>)
+    if is_branch_creation(transcript):
         bname = extract_branch_name(transcript)
-        if bname.lower() in ["master", "main"]:
-            return {
-                "type": "git_action",
-                "action": "checkout_master",
-                "branch_name": bname,
-                "target_branch": bname,
-                "target_file": "",
-                "task_description": f"Switch to {bname} branch and pull latest changes",
-                "command": f'{cd_prefix} && git add -A && git commit -m "Auto-save state" && git checkout {bname} && git pull origin {bname}',
-                "speaking_start": f"Switching to {bname} branch, sir.",
-                "speaking_progress": "",
-                "speaking_response": "Switched to master branch and pulled latest changes, sir.",
-            }
-
-        exists_locally, exists_remotely = inspect_branch_status(bname, PROJECT_ROOT)
-        is_explicit = is_explicit_branch_creation(transcript)
-
-        if exists_locally:
-            # Branch exists locally: Run git checkout <branch_name> (DO NOT use -b)
-            cmd = f'{cd_prefix} && git checkout {bname}'
-            action = "switch_branch"
-            start = f"Switching to branch {bname}, sir."
-            speaking_resp = f"Switched to branch {bname}, sir."
-        elif exists_remotely:
-            # Branch exists only on remote: Run git checkout -b <branch_name> origin/<branch_name>
-            cmd = f'{cd_prefix} && git checkout -b {bname} origin/{bname}'
-            action = "checkout_remote_branch"
-            start = f"Checking out remote branch {bname}, sir."
-            speaking_resp = f"Checked out and switched to remote branch {bname}, sir."
-        elif is_explicit:
-            # Branch does not exist anywhere and explicit create requested: Run git checkout -b <branch_name>
-            cmd = f'{cd_prefix} && git checkout -b {bname} && git push -u origin {bname}'
-            action = "create_branch"
-            start = f"Creating and pushing branch {bname} to GitHub, sir."
-            speaking_resp = f"Branch {bname} has been created and pushed to GitHub, sir."
-        else:
-            cmd = f'{cd_prefix} && git checkout {bname}'
-            action = "switch_branch"
-            start = f"Switching to branch {bname}, sir."
-            speaking_resp = f"Switched to branch {bname}, sir."
-
         return {
             "type": "git_action",
-            "action": action,
-            "branch_name": bname,
-            "target_branch": bname,
+            "action": "create_branch",
             "target_file": "",
-            "task_description": f"{action.replace('_', ' ').title()} {bname}",
-            "command": cmd,
-            "speaking_start": start,
+            "task_description": f"Create and push branch {bname}",
+            "command": (
+                f'{cd_prefix} && git checkout -b {bname} && git push -u origin {bname}'
+            ),
+            "speaking_start": f"Creating and pushing branch {bname} to GitHub, sir.",
             "speaking_progress": "",
-            "speaking_response": speaking_resp,
+            "speaking_response": f"Branch {bname} has been created and pushed to GitHub, sir.",
         }
 
-    # 7. Git Commit and Push Pipeline
-    if is_commit_or_push(transcript) or any(w in t for w in ["push", "commit", "repo", "github"]):
-        commit_msg = extract_commit_message(transcript)
-        target_branch = extract_push_target_branch(transcript)
-
-        if commit_msg != "Automated update via Jarvis":
-            cmd = f'{cd_prefix} && git add -A && git commit -m "{commit_msg}" && git push origin {target_branch}'
-        else:
-            cmd = f'{cd_prefix} && git add -A && git commit -m "Automated update via Jarvis" --allow-empty-message && git push origin {target_branch}'
-
+    # 2. Git Action Intent
+    if any(w in t for w in ["push", "commit", "repo", "github"]):
         return {
             "type": "git_action",
-            "action": "commit_and_push",
-            "commit_message": commit_msg,
-            "target_branch": target_branch,
+            "action": "",
             "target_file": "",
-            "task_description": f"Git commit and push to {target_branch}",
-            "command": cmd,
-            "speaking_start": f"Executing task: committing and pushing changes to {target_branch}, sir.",
+            "task_description": "Git commit and push",
+            "command": (
+                f'{cd_prefix} && git init && git add . && '
+                f'(git commit -m "Automated update via Jarvis" || echo "No changes to commit") && '
+                f'(git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)'
+            ),
+            "speaking_start": "Executing task: committing and pushing changes, sir.",
             "speaking_progress": "",
-            "speaking_response": f"Successfully committed and pushed all changes to {target_branch}, sir.",
+            "speaking_response": "Task completed successfully, sir.",
         }
-
-    # 8. Git Status or Log
-    if is_status_or_log_action(transcript):
-        if any(w in t for w in ["log", "recent commits", "commit history"]):
-            cmd = f'{cd_prefix} && git log -n 5 --oneline'
-            action = "git_log"
-            start = "Retrieving recent commit history, sir."
-            resp = "Recent commit history retrieved, sir."
-        else:
-            cmd = f'{cd_prefix} && git status -s'
-            action = "git_status"
-            start = "Checking git status, sir."
-            resp = "Repository status check complete, sir."
-
+    elif any(w in t for w in ["status", "changes"]):
         return {
             "type": "git_action",
-            "action": action,
+            "action": "",
             "target_file": "",
-            "task_description": f"Git {action}",
-            "command": cmd,
-            "speaking_start": start,
+            "task_description": "Git status check",
+            "command": f'{cd_prefix} && git status',
+            "speaking_start": "Executing task: checking git status, sir.",
             "speaking_progress": "",
-            "speaking_response": resp,
+            "speaking_response": "Task completed successfully, sir.",
         }
     else:
         return {
@@ -930,7 +486,13 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
         }
 
     if req_type == "git_action":
-        return build_default_intent(transcript)
+        if is_branch_creation(transcript):
+            bname = extract_branch_name(transcript)
+            cmd = f'{cd_prefix} && git checkout -b {bname} && git push -u origin {bname}'
+            start = f"Creating and pushing branch {bname} to GitHub, sir."
+            speaking_resp = f"Branch {bname} has been created and pushed to GitHub, sir."
+        elif not cmd.startswith("cd "):
+            cmd = f'{cd_prefix} && {cmd}' if cmd else f'{cd_prefix} && git status'
 
     start = clean_spoken_text(str(data.get("speaking_start", "")))
     prog = clean_spoken_text(str(data.get("speaking_progress", "")))
@@ -1023,32 +585,8 @@ def route_intent(transcript: str) -> dict:
     if is_antigravity_intent(cleaned):
         return build_default_intent(cleaned)
 
-    # IMMEDIATE ROUTING: Branch deletion
-    if is_delete_branch_action(cleaned):
-        return build_default_intent(cleaned)
-
-    # IMMEDIATE ROUTING: Git merge branches (arbitrary two branches or into master)
-    if is_merge_action(cleaned):
-        return build_default_intent(cleaned)
-
-    # IMMEDIATE ROUTING: Git pull from specific branch
-    if is_pull_action(cleaned):
-        return build_default_intent(cleaned)
-
-    # IMMEDIATE ROUTING: Safe master checkout workflow
-    if is_checkout_master(cleaned):
-        return build_default_intent(cleaned)
-
-    # IMMEDIATE ROUTING: Git branch creation & switching
-    if is_explicit_branch_creation(cleaned) or is_branch_switch(cleaned):
-        return build_default_intent(cleaned)
-
-    # IMMEDIATE ROUTING: Git commit and push pipeline
-    if is_commit_or_push(cleaned):
-        return build_default_intent(cleaned)
-
-    # IMMEDIATE ROUTING: Git status / log inquiry
-    if is_status_or_log_action(cleaned):
+    # IMMEDIATE ROUTING: Git branch creation & remote push
+    if is_branch_creation(cleaned):
         return build_default_intent(cleaned)
 
     # 1. Primary: Groq Cloud API
