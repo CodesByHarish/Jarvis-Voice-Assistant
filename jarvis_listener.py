@@ -30,6 +30,15 @@ N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "http://localhost:5678/webhook/ja
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_AUDIO_FILE = os.path.join(PROJECT_ROOT, "recorded_command.wav")
 ON_IT_AUDIO = os.path.join(PROJECT_ROOT, "on_it.mp3")
+STATUS_FILE = os.path.join(PROJECT_ROOT, "last_status.txt")
+
+def update_hud_status(msg: str):
+    """Updates status text for HUD Panel 3 display."""
+    try:
+        with open(STATUS_FILE, "w", encoding="utf-8") as f:
+            f.write(msg)
+    except Exception:
+        pass
 
 # Audio & Wake Word Parameters
 THRESHOLD = 0.20
@@ -188,6 +197,7 @@ def main():
 
             if score >= THRESHOLD:
                 print(f"\n[Jarvis] Wake word detected! (Confidence: {score:.2f} >= {THRESHOLD})")
+                update_hud_status("[LISTENING] Wake word detected. Listening for command...")
                 
                 # 1. True 0ms instant local audio acknowledgment
                 play_instant_wake_acknowledgment()
@@ -195,6 +205,7 @@ def main():
                 # 2. Dynamic VAD Recording with 350ms cutoff
                 audio_bytes = record_dynamic_command(stream, vad_engine)
                 save_wav(audio_bytes, audio, OUTPUT_AUDIO_FILE)
+                update_hud_status("[PROCESSING] Audio captured. Dispatching to pipeline...")
 
                 # 3. Fire to n8n webhook
                 dispatch_to_n8n(OUTPUT_AUDIO_FILE)

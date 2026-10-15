@@ -109,7 +109,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"$json.speaking_response\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
       },
       "id": "announce-git-done-cmd",
       "name": "Announce Git Completion",
@@ -154,20 +154,6 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-start"
-      },
-      "id": "announce-ag-start-cmd",
-      "name": "Announce Antigravity Start",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [
-        1280,
-        360
-      ],
-      "onError": "continueErrorOutput"
-    },
-    {
-      "parameters": {
         "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python execute_agent.py"
       },
       "id": "execute-ag-cmd",
@@ -175,34 +161,34 @@
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1500,
+        1380,
         360
       ],
       "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"$json.speaking_response\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
       },
       "id": "announce-ag-done-cmd",
       "name": "Announce Antigravity Done",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1720,
+        1680,
         360
       ]
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"$json.speaking_response\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-response"
       },
       "id": "speak-qa-answer-cmd",
       "name": "Speak QA Answer",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1280,
+        1380,
         540
       ]
     },
@@ -319,7 +305,7 @@
       "main": [
         [
           {
-            "node": "Announce Antigravity Start",
+            "node": "Execute Antigravity Bridge",
             "type": "main",
             "index": 0
           }
@@ -327,17 +313,6 @@
         [
           {
             "node": "Speak QA Answer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Announce Antigravity Start": {
-      "main": [
-        [
-          {
-            "node": "Execute Antigravity Bridge",
             "type": "main",
             "index": 0
           }

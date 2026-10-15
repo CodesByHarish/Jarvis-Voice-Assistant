@@ -54,12 +54,56 @@ def main():
         target_repo = os.path.abspath(target_repo)
 
     print(f"[Jarvis Executing]: '{command}' in '{target_repo}'")
-    
+    status_file = os.path.join(PROJECT_ROOT, "last_status.txt")
+
     try:
-        proc = subprocess.run(command, shell=True, cwd=target_repo, env=os.environ)
-        sys.exit(proc.returncode)
+        proc = subprocess.run(
+            command,
+            shell=True,
+            cwd=target_repo,
+            env=os.environ,
+            capture_output=True,
+            text=True
+        )
+        print(f"[execute_git.py] Process finished with exit code {proc.returncode}")
+        if proc.stdout:
+            print(f"[execute_git.py] Output:\n{proc.stdout.strip()}")
+        if proc.stderr:
+            print(f"[execute_git.py] Notice/Stderr:\n{proc.stderr.strip()}", file=sys.stderr)
+
+        if proc.returncode != 0:
+            err_details = proc.stderr.strip() or proc.stdout.strip() or f"Execution failed with code {proc.returncode}"
+            print(f"[execute_git.py] Git execution FAILED: {err_details}", file=sys.stderr)
+            try:
+                with open(status_file, "w", encoding="utf-8") as f:
+                    f.write(f"[GIT ERROR] {err_details}")
+            except Exception:
+                pass
+            try:
+                if os.path.exists(intent_file):
+                    with open(intent_file, "r", encoding="utf-8") as inf:
+                        idat = json.load(inf)
+                    idat["speaking_error"] = f"Git operation failed, sir: {err_details[:80]}"
+                    with open(intent_file, "w", encoding="utf-8") as inf:
+                        json.dump(idat, inf, indent=2)
+            except Exception:
+                pass
+            sys.exit(proc.returncode)
+
+        # Execution succeeded
+        try:
+            with open(status_file, "w", encoding="utf-8") as f:
+                f.write(f"[GIT SUCCESS] {data.get('speaking_response', 'Git action completed.')}")
+        except Exception:
+            pass
+        sys.exit(0)
     except Exception as e:
         print(f"[execute_git.py] Execution error: {e}", file=sys.stderr)
+        try:
+            with open(status_file, "w", encoding="utf-8") as f:
+                f.write(f"[GIT ERROR] {e}")
+        except Exception:
+            pass
         sys.exit(1)
 
 if __name__ == "__main__":
