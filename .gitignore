@@ -22,3 +22,16 @@ Thumbs.db
 .vscode/
 .idea/
 node_modules/
+
+# Dynamic Runtime & Cache Files
+last_intent.json
+last_status.txt
+last_transcript.txt
+antigravity_task.json
+antigravity_log.txt
+antigravity_prompt.txt
+speech_queue.txt
+recorded_command.wav
+codebase_cache.json
+*.mp3
+temp_speech_*.mp3
