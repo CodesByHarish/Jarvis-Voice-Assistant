@@ -229,16 +229,36 @@ def build_default_intent(transcript: str) -> dict:
         }
 
     # 2. Git Action Intent
-    if any(w in t for w in ["push", "commit", "repo", "github"]):
+    if "create" in t and any(w in t for w in ["repo", "repository"]):
+        m_repo = re.search(r'(?:repo|repository)\s+(?:named|called)?\s*([a-zA-Z0-9_\-\.\s]+?)(?:\s+and\s+|\s+with\s+|\?|$)', t)
+        raw_name = m_repo.group(1).strip() if m_repo else "Jarvis-Repo"
+        repo_name = re.sub(r'[^a-zA-Z0-9_\-]', '-', raw_name).strip('-')
+        if not repo_name:
+            repo_name = "Jarvis-Project"
+
         return {
             "type": "git_action",
-            "action": "",
+            "action": "create_repo",
+            "target_file": "",
+            "task_description": f"Create GitHub repository {repo_name}",
+            "command": f'{cd_prefix} && gh repo create "{repo_name}" --public',
+            "speaking_start": f"Executing task: creating GitHub repository {repo_name}, sir.",
+            "speaking_progress": "",
+            "speaking_response": f"Repository {repo_name} created successfully on GitHub, sir.",
+        }
+
+    if any(w in t for w in ["push", "commit", "upload", "sync", "github"]):
+        target_branch = "updated" if "updated" in t else ""
+        push_cmd = f"git push origin {target_branch}" if target_branch else "git push"
+        return {
+            "type": "git_action",
+            "action": "commit_and_push",
             "target_file": "",
             "task_description": "Git commit and push",
             "command": (
-                f'{cd_prefix} && git init && git add . && '
+                f'{cd_prefix} && git add . && '
                 f'(git commit -m "Automated update via Jarvis" || echo "No changes to commit") && '
-                f'(git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)'
+                f'{push_cmd}'
             ),
             "speaking_start": "Executing task: committing and pushing changes, sir.",
             "speaking_progress": "",
@@ -355,8 +375,12 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
         }
 
     if req_type == "git_action":
-        if not cmd.startswith("cd "):
-            cmd = f'{cd_prefix} && {cmd}' if cmd else f'{cd_prefix} && git status'
+        if cmd.startswith("cd "):
+            cmd = re.sub(r'^cd\s+("[^"]+"|[^\s&]+)\s*&&\s*', f'{cd_prefix} && ', cmd, flags=re.IGNORECASE)
+        elif cmd:
+            cmd = f'{cd_prefix} && {cmd}'
+        else:
+            cmd = f'{cd_prefix} && git status'
 
     start = clean_spoken_text(str(data.get("speaking_start", "")))
     prog = clean_spoken_text(str(data.get("speaking_progress", "")))

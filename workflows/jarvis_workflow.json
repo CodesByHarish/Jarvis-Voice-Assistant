@@ -21,7 +21,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python transcribe.py recorded_command.wav"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python transcribe.py recorded_command.wav"
       },
       "id": "transcribe-cmd",
       "name": "Transcribe Audio",
@@ -35,7 +35,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python intent_router.py"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python intent_router.py"
       },
       "id": "intent-router-cmd",
       "name": "Intent Router",
@@ -81,7 +81,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-start"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python speak.py --intent-start"
       },
       "id": "announce-start-cmd",
       "name": "Announce Task Start",
@@ -95,7 +95,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python execute_git.py"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python execute_git.py"
       },
       "id": "git-action-cmd",
       "name": "Execute Git Command",
@@ -109,7 +109,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"$json.speaking_response\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python speak.py \"$json.speaking_response\""
       },
       "id": "announce-git-done-cmd",
       "name": "Announce Git Completion",
@@ -154,7 +154,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-start"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python speak.py --intent-start"
       },
       "id": "announce-ag-start-cmd",
       "name": "Announce Antigravity Start",
@@ -168,7 +168,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python execute_agent.py"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python execute_agent.py"
       },
       "id": "execute-ag-cmd",
       "name": "Execute Antigravity Bridge",
@@ -182,7 +182,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"$json.speaking_response\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python speak.py \"$json.speaking_response\""
       },
       "id": "announce-ag-done-cmd",
       "name": "Announce Antigravity Done",
@@ -195,7 +195,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py \"$json.speaking_response\""
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python speak.py \"$json.speaking_response\""
       },
       "id": "speak-qa-answer-cmd",
       "name": "Speak QA Answer",
@@ -208,7 +208,7 @@
     },
     {
       "parameters": {
-        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && python speak.py --intent-error"
+        "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\JARVIS GITHUB\\Jarvis-Voice-Assistant\" && python speak.py --intent-error"
       },
       "id": "speak-error-cmd",
       "name": "Announce Error",
