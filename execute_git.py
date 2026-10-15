@@ -297,6 +297,86 @@ def handle_branch_checkout(target_repo: str, intent_file: str, status_file: str,
     print(f"[execute_git.py] {success_msg}")
     sys.exit(0)
 
+def handle_commit_and_push(target_repo: str, intent_file: str, status_file: str, data: dict):
+    """
+    Executes clean, deterministic Git commit & push pipeline:
+    1. Handles untracked files via `git add -A`.
+    2. Commits with custom message or "Automated update via Jarvis" --allow-empty-message.
+    3. Dynamically targets active branch or master when specified.
+    4. Verifies returncode for git push:
+       - On success: logs `[GIT SUCCESS] Code pushed to GitHub master successfully`
+         and sets speaking_response: "Successfully committed and pushed all changes to GitHub, sir."
+       - On failure: captures stderr, logs error, speaks failure reason.
+    """
+    command = str(data.get("command", "")).strip()
+    task_desc = str(data.get("task_description", "")).strip()
+    action = str(data.get("action", "")).strip()
+
+    # 1. Target Branch Determination
+    active_b = get_current_branch(target_repo)
+    data_branch = str(data.get("target_branch", "")).strip()
+
+    check_str = (command + " " + task_desc + " " + action).lower()
+    if "master" in check_str or "github" in check_str:
+        target_branch = "master"
+    elif data_branch:
+        target_branch = data_branch
+    elif active_b:
+        target_branch = active_b
+    else:
+        target_branch = "master"
+
+    # 2. Commit Message Determination
+    commit_msg = str(data.get("commit_message", "")).strip()
+    if not commit_msg or commit_msg == "Automated update via Jarvis":
+        m = re.search(r'git commit -m [\'"]([^\'"]+)[\'"]', command)
+        if m:
+            commit_msg = m.group(1).strip()
+        else:
+            commit_msg = "Automated update via Jarvis"
+
+    print(f"[execute_git.py] Commit & push pipeline starting in '{target_repo}': branch='{target_branch}', msg='{commit_msg}'")
+
+    # Step 1: git add -A
+    print("[execute_git.py] Step 1: git add -A")
+    subprocess.run(["git", "add", "-A"], cwd=target_repo, capture_output=True, text=True)
+
+    # Step 2: git commit
+    print(f"[execute_git.py] Step 2: git commit -m \"{commit_msg}\"")
+    if commit_msg != "Automated update via Jarvis":
+        res_commit = subprocess.run(["git", "commit", "-m", commit_msg], cwd=target_repo, capture_output=True, text=True)
+    else:
+        res_commit = subprocess.run(["git", "commit", "-m", commit_msg, "--allow-empty-message"], cwd=target_repo, capture_output=True, text=True)
+
+    commit_output = res_commit.stdout.strip() or res_commit.stderr.strip()
+    print(f"[execute_git.py] Commit result: {commit_output}")
+
+    # Step 3: git push origin <target_branch>
+    print(f"[execute_git.py] Step 3: git push origin {target_branch}")
+    res_push = subprocess.run(["git", "push", "origin", target_branch], cwd=target_repo, capture_output=True, text=True)
+
+    # Step 4: Check process returncode for git push
+    if res_push.returncode != 0:
+        err = res_push.stderr.strip() or res_push.stdout.strip() or f"Push failed with code {res_push.returncode}"
+        print(f"[execute_git.py] Git push FAILED: {err}", file=sys.stderr)
+        with open(status_file, "w", encoding="utf-8") as f:
+            f.write(f"[GIT ERROR] {err}")
+        fail_msg = f"Git push to {target_branch} failed, sir: {err[:80]}"
+        update_intent_response(intent_file, speaking_response=fail_msg, speaking_error=fail_msg)
+        sys.exit(res_push.returncode)
+
+    # Success
+    status_success_msg = f"[GIT SUCCESS] Code pushed to GitHub {target_branch} successfully"
+    speech_success_msg = "Successfully committed and pushed all changes to GitHub, sir."
+
+    with open(status_file, "w", encoding="utf-8") as f:
+        f.write(status_success_msg)
+
+    update_intent_response(intent_file, speaking_response=speech_success_msg, speaking_success=speech_success_msg)
+    print(f"[execute_git.py] {status_success_msg}")
+    print(f"[execute_git.py] {speech_success_msg}")
+    sys.exit(0)
+
 def main():
     intent_file = sys.argv[1] if len(sys.argv) > 1 else os.path.join(PROJECT_ROOT, "last_intent.json")
     if not os.path.exists(intent_file):
@@ -332,6 +412,10 @@ def main():
     action = data.get("action", "")
     command = data.get("command", "git status").strip()
 
+    # Handle Automated Merge & Push to Master Workflow
+    if action == "merge_to_master" or ("merge" in command.lower() and "master" in command.lower()):
+        handle_merge_to_master(target_repo, intent_file, status_file, data)
+
     # Handle Safe Master Checkout Workflow
     if action == "checkout_master" or (
         ("checkout master" in command.lower() or "switch to master" in command.lower())
@@ -339,16 +423,20 @@ def main():
     ):
         handle_checkout_master(target_repo, intent_file, status_file, data)
 
-    # Handle Automated Merge & Push to Master Workflow
-    if action == "merge_to_master" or ("merge" in command.lower() and "master" in command.lower()):
-        handle_merge_to_master(target_repo, intent_file, status_file, data)
-
     # Handle Branch Checkout / Switching / Creation
     if (
         action in ["switch_branch", "checkout_branch", "create_branch", "checkout_remote_branch"]
-        or "checkout" in command.lower()
+        or ("checkout" in command.lower() and "commit" not in command.lower())
     ):
         handle_branch_checkout(target_repo, intent_file, status_file, data)
+
+    # Handle Commit & Push Action
+    if (
+        action in ["commit_and_push", "push", "commit"]
+        or "git push" in command.lower()
+        or "git commit" in command.lower()
+    ):
+        handle_commit_and_push(target_repo, intent_file, status_file, data)
 
     # Standard Git execution fallback
     print(f"[Jarvis Executing]: '{command}' in '{target_repo}'")

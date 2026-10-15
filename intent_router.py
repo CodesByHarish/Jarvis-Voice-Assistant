@@ -194,6 +194,35 @@ def is_branch_creation(transcript: str) -> bool:
     """Detects git branch creation or switching requests (legacy wrapper)."""
     return is_explicit_branch_creation(transcript) or is_branch_switch(transcript)
 
+def extract_commit_message(transcript: str) -> str:
+    """Extracts custom commit message from user transcript if provided."""
+    t = transcript.strip()
+    patterns = [
+        r'(?:commit|push)\s+(?:with\s+)?(?:the\s+)?message\s+[\'"]?([^\'"]+)[\'"]?',
+        r'message\s+[\'"]?([^\'"]+)[\'"]?',
+    ]
+    for p in patterns:
+        m = re.search(p, t, re.IGNORECASE)
+        if m:
+            msg = m.group(1).strip()
+            msg = re.sub(r'\s+and\s+push.*$', '', msg, flags=re.IGNORECASE)
+            msg = re.sub(r'[,.]?\s*sir\.?$', '', msg, flags=re.IGNORECASE).strip()
+            if msg and len(msg) > 1:
+                return msg
+    return "Automated update via Jarvis"
+
+def is_commit_or_push(transcript: str) -> bool:
+    """Detects commands requesting git commit, push, or updating master."""
+    t = transcript.lower().strip()
+    if is_merge_to_master(t) or is_checkout_master(t):
+        return False
+    patterns = [
+        r'\b(?:commit|push)\b',
+        r'\bpush\s+(?:code\s+)?to\s+github\b',
+        r'\bupdate\s+master\b',
+    ]
+    return any(re.search(p, t) for p in patterns)
+
 def get_current_active_branch() -> str:
     """Dynamically inspects the current active branch using `git rev-parse --abbrev-ref HEAD`."""
     try:
@@ -214,9 +243,10 @@ def get_current_active_branch() -> str:
 def is_merge_to_master(transcript: str) -> bool:
     """Detects commands requesting merging, syncing, or pulling a branch into master."""
     t = transcript.lower()
-    has_merge = bool(re.search(r'\b(?:merge|sync|pull|integrate|update)\b', t))
+    has_merge = bool(re.search(r'\b(?:merge|sync|pull|integrate)\b', t))
     has_master = bool(re.search(r'\b(?:master|main)\b', t))
-    return has_merge and has_master
+    has_update_with_changes = bool(re.search(r'\bupdate\s+(?:the\s+)?master(?:\s+branch)?\s+with\b', t))
+    return (has_merge and has_master) or has_update_with_changes
 
 def extract_merge_source_branch(transcript: str) -> str:
     """Extracts source branch to merge into master or dynamically retrieves active branch."""
@@ -383,10 +413,11 @@ Rules:
     command: cd "{PROJECT_ROOT}" && (git checkout -b <branch> 2>nul || git checkout <branch>) && git push -u origin <branch>
     speaking_start: "Creating and pushing branch <branch> to GitHub, sir."
     speaking_response: "Branch <branch> has been created and pushed to GitHub, sir."
-  - For commit and push:
-    command: cd "{PROJECT_ROOT}" && git init && git add . && (git commit -m "<msg>" || echo "No changes to commit") && (git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)
-    speaking_start: "Executing task: committing and pushing your changes, sir."
-    speaking_response: "Task completed successfully, sir."
+  - For commit and push (e.g. "commit", "push", "push code to github", "update master"):
+    command: cd "{PROJECT_ROOT}" && git add -A && git commit -m "Automated update via Jarvis" --allow-empty-message && git push origin master
+    If user message provided: cd "{PROJECT_ROOT}" && git add -A && git commit -m "<user_message>" && git push origin master
+    speaking_start: "Executing task: committing and pushing changes, sir."
+    speaking_response: "Successfully committed and pushed all changes to GitHub, sir."
 - For "general_qa":
   - Provide a concise spoken answer (1-2 sentences maximum).
   - command: "", action: "", target_file: "", speaking_start: "", speaking_progress: ""
@@ -548,21 +579,31 @@ def build_default_intent(transcript: str) -> dict:
             "speaking_response": speaking_resp,
         }
 
-    # 2. Git Action Intent
-    if any(w in t for w in ["push", "commit", "repo", "github"]):
+    # 5. Git Commit and Push Pipeline (clean, deterministic pipeline without old git init chains)
+    if is_commit_or_push(transcript) or any(w in t for w in ["push", "commit", "repo", "github"]):
+        commit_msg = extract_commit_message(transcript)
+        active_b = get_current_active_branch()
+        if "master" in t or "github" in t or not active_b:
+            target_branch = "master"
+        else:
+            target_branch = active_b
+
+        if commit_msg != "Automated update via Jarvis":
+            cmd = f'{cd_prefix} && git add -A && git commit -m "{commit_msg}" && git push origin {target_branch}'
+        else:
+            cmd = f'{cd_prefix} && git add -A && git commit -m "Automated update via Jarvis" --allow-empty-message && git push origin {target_branch}'
+
         return {
             "type": "git_action",
-            "action": "",
+            "action": "commit_and_push",
+            "commit_message": commit_msg,
+            "target_branch": target_branch,
             "target_file": "",
-            "task_description": "Git commit and push",
-            "command": (
-                f'{cd_prefix} && git init && git add . && '
-                f'(git commit -m "Automated update via Jarvis" || echo "No changes to commit") && '
-                f'(git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)'
-            ),
+            "task_description": f"Git commit and push to {target_branch}",
+            "command": cmd,
             "speaking_start": "Executing task: committing and pushing changes, sir.",
             "speaking_progress": "",
-            "speaking_response": "Task completed successfully, sir.",
+            "speaking_response": "Successfully committed and pushed all changes to GitHub, sir.",
         }
     elif any(w in t for w in ["status", "changes"]):
         return {
@@ -732,6 +773,17 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
                     cmd = f'{cd_prefix} && git checkout {bname}'
                     start = f"Switching to branch {bname}, sir."
                     speaking_resp = f"Switched to branch {bname}, sir."
+        elif is_commit_or_push(transcript) or any(w in transcript.lower() for w in ["push", "commit", "repo", "github"]):
+            commit_msg = extract_commit_message(transcript)
+            t_lower = transcript.lower()
+            active_b = get_current_active_branch()
+            target_branch = "master" if ("master" in t_lower or "github" in t_lower or not active_b) else active_b
+            if commit_msg != "Automated update via Jarvis":
+                cmd = f'{cd_prefix} && git add -A && git commit -m "{commit_msg}" && git push origin {target_branch}'
+            else:
+                cmd = f'{cd_prefix} && git add -A && git commit -m "Automated update via Jarvis" --allow-empty-message && git push origin {target_branch}'
+            start = "Executing task: committing and pushing changes, sir."
+            speaking_resp = "Successfully committed and pushed all changes to GitHub, sir."
         elif not cmd.startswith("cd "):
             cmd = f'{cd_prefix} && {cmd}' if cmd else f'{cd_prefix} && git status'
 
@@ -836,6 +888,10 @@ def route_intent(transcript: str) -> dict:
 
     # IMMEDIATE ROUTING: Git branch creation & switching
     if is_explicit_branch_creation(cleaned) or is_branch_switch(cleaned):
+        return build_default_intent(cleaned)
+
+    # IMMEDIATE ROUTING: Git commit and push pipeline
+    if is_commit_or_push(cleaned):
         return build_default_intent(cleaned)
 
     # 1. Primary: Groq Cloud API
