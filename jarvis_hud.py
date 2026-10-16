@@ -567,7 +567,7 @@ class JarvisHUD(QMainWindow):
 
                 if status != self.last_ag_task_status:
                     self.last_ag_task_status = status
-                    if status in ["pending", "in_progress"]:
+                    if status in ["pending", "in_progress", "dispatched"]:
                         self.badge_antigravity.setText(f"[ANTIGRAVITY: {action} // {target}]")
                         self.badge_antigravity.setStyleSheet("color: #ff9d00; background: rgba(255, 157, 0, 30); border: 1px solid #ff9d00; padding: 2px 6px; border-radius: 2px;")
                     elif status == "completed":

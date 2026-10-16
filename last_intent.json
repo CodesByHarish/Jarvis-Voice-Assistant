@@ -3,7 +3,7 @@
   "action": "",
   "target_file": "",
   "task_description": "",
-  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"Push all changes\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)",
+  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"Updated anti-gravity\" || echo \"No changes to commit\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)",
   "speaking_start": "Executing task: committing and pushing your changes, sir.",
   "speaking_progress": "",
   "speaking_response": "Task completed successfully, sir."

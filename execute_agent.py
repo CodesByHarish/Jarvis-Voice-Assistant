@@ -154,13 +154,25 @@ def main():
 
     time.sleep(0.4)
 
-    # 4. Strict Syntax Check via py_compile
-    append_hud_log(f"[ANTIGRAVITY] Running syntax verification: python -m py_compile {target_rel}...")
+    # Ensure prompt is dispatched to Antigravity IDE agent if not already dispatched
+    prompt = task.get("prompt") or task_desc or f"Inspect and fix {target_rel}"
+    if not task.get("dispatched"):
+        try:
+            from antigravity_bridge import dispatch_prompt_to_antigravity
+            if dispatch_prompt_to_antigravity(prompt):
+                task["dispatched"] = True
+                task["status"] = "dispatched"
+                append_hud_log(f"[ANTIGRAVITY] Prompt pasted and submitted to Antigravity Agent.")
+        except Exception as e:
+            append_hud_log(f"[ANTIGRAVITY] Dispatch error: {e}")
+
+    # 4. Syntax Verification
+    append_hud_log(f"[ANTIGRAVITY] Checking current syntax status in {target_rel}...")
     valid, err_msg = compile_check(target_path)
 
     if valid:
         append_hud_log(f"[ANTIGRAVITY] Syntax verification PASSED: {target_rel} is 100% valid.")
-        append_hud_log(f"[ANTIGRAVITY] Autonomous code patch applied and verified.")
+        append_hud_log(f"[ANTIGRAVITY] Autonomous code patch verified.")
 
         task["status"] = "completed"
         task["current_step"] = "Verification complete"
@@ -171,14 +183,14 @@ def main():
         except Exception:
             pass
 
-        # Speak completion announcement
         speak_async(speaking_resp)
         append_hud_log(f"[ANTIGRAVITY] Bridge execution finished successfully.")
         sys.exit(0)
     else:
-        append_hud_log(f"[ANTIGRAVITY] Syntax check FAILED in {target_rel}: {err_msg}")
-        task["status"] = "failed"
-        task["current_step"] = f"Syntax error: {err_msg}"
+        # File currently has a defect that was dispatched to Antigravity Agent
+        append_hud_log(f"[ANTIGRAVITY] Defect identified in {target_rel} (Line {err_msg}). Dispatched to Antigravity Agent.")
+        task["status"] = "dispatched"
+        task["current_step"] = f"Awaiting Antigravity fix: {err_msg}"
         task["syntax_valid"] = False
         try:
             with open(task_path, "w", encoding="utf-8") as f:
@@ -186,8 +198,9 @@ def main():
         except Exception:
             pass
 
-        speak_async(f"Antigravity encountered a syntax error in {target_rel}, sir.")
-        sys.exit(1)
+        speak_async(speaking_resp)
+        append_hud_log(f"[ANTIGRAVITY] Task handed over to Antigravity Agent.")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()

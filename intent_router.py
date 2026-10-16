@@ -92,15 +92,19 @@ ANTIGRAVITY_TRIGGER_KEYWORDS = [
 ]
 
 def sync_to_clipboard(text: str) -> bool:
-    """Syncs formatted text to Windows clipboard using native clip.exe."""
+    """Syncs formatted text to Windows clipboard using pyperclip and clip.exe."""
     try:
-        proc = subprocess.Popen(["clip"], stdin=subprocess.PIPE, shell=True)
-        proc.communicate(input=text.encode("utf-8"))
-        print("[intent_router.py] Formatted prompt synchronized to Windows clipboard.", file=sys.stderr)
-        return True
-    except Exception as e:
-        print(f"[intent_router.py] Clipboard sync error: {e}", file=sys.stderr)
-        return False
+        from antigravity_bridge import sync_to_clipboard as bridge_sync
+        return bridge_sync(text)
+    except Exception:
+        try:
+            proc = subprocess.Popen(["clip"], stdin=subprocess.PIPE, shell=True)
+            proc.communicate(input=text.encode("utf-8"))
+            print("[intent_router.py] Formatted prompt synchronized to Windows clipboard.", file=sys.stderr)
+            return True
+        except Exception as e:
+            print(f"[intent_router.py] Clipboard sync error: {e}", file=sys.stderr)
+            return False
 
 def is_antigravity_intent(transcript: str) -> bool:
     """Detects whether transcript requires Antigravity code generation, bug fixing, or HUD styling."""
@@ -672,8 +676,14 @@ DIRECTIVE:
         except Exception as e:
             print(f"[intent_router.py] Antigravity prompt caching notice: {e}", file=sys.stderr)
 
-        # Sync formatted prompt to Windows clipboard
-        sync_to_clipboard(formatted_prompt)
+        # Automatically dispatch to Antigravity IDE agent (Ctrl+L -> Ctrl+V -> Enter)
+        dispatched_ok = False
+        try:
+            from antigravity_bridge import dispatch_prompt_to_antigravity
+            dispatched_ok = dispatch_prompt_to_antigravity(formatted_prompt)
+        except Exception as e:
+            print(f"[intent_router.py] Antigravity direct dispatch error: {e}", file=sys.stderr)
+            sync_to_clipboard(formatted_prompt)
 
         # Stream update to last_status.txt for HUD Panel 3
         try:
@@ -692,7 +702,8 @@ DIRECTIVE:
                 "speaking_start": result.get("speaking_start", ""),
                 "speaking_progress": result.get("speaking_progress", ""),
                 "speaking_response": result.get("speaking_response", ""),
-                "status": "pending",
+                "status": "dispatched" if dispatched_ok else "pending",
+                "dispatched": dispatched_ok,
                 "created_at": time.time()
             }
             with open(ANTIGRAVITY_TASK_FILE, "w", encoding="utf-8") as f:
