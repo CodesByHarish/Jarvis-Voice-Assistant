@@ -124,10 +124,28 @@ def is_antigravity_intent(transcript: str) -> bool:
             return True
     return any(w in t for w in ANTIGRAVITY_TRIGGER_KEYWORDS)
 
-def is_branch_creation(transcript: str) -> bool:
-    """Detects git branch creation requests."""
+def is_branch_query(transcript: str) -> bool:
+    """Detects requests to check, show, or list current git branch."""
     t = transcript.lower()
-    return bool(re.search(r'\b(?:create|make|checkout\s+-b|new)\s+branch\b|\bbranch\s+[a-zA-Z0-9_\-\.\/]+', t))
+    return bool(re.search(r'\b(?:what|which|current|show|check|list|get)\s+branch\b|\bbranch\s+(?:am\s+i|status|name|list)\b|\bwhat\s+branch\s+am\s+i\s+on\b', t))
+
+def is_branch_creation(transcript: str) -> bool:
+    """Detects explicit git branch creation requests."""
+    t = transcript.lower()
+    if is_branch_query(t):
+        return False
+    return bool(re.search(r'\b(?:create|make|checkout\s+-b|new)\s+(?:a\s+)?branch\b|\bbranch\s+(?:named|called)\s+[a-zA-Z0-9_\-\.\/]+', t))
+
+def is_git_log_query(transcript: str) -> bool:
+    """Detects requests to view commit history, last commit, or git log."""
+    t = transcript.lower()
+    return bool(re.search(r'\b(?:what|show|get|view|check|list|recent|last|latest|who)\b.*\b(?:commit|commits|log|history)\b|\bgit\s+log\b|\blast\s+commit\b', t))
+
+def is_git_status_query(transcript: str) -> bool:
+    """Detects requests to check git status or uncommitted changes."""
+    t = transcript.lower()
+    return bool(re.search(r'\b(?:git\s+status|check\s+status|repo\s+status|what\s+status|show\s+changes|what\s+changed|uncommitted)\b', t))
+
 
 def check_python_syntax(filepath: str) -> tuple[bool, str, int | None, str]:
     """Runs actual `python -m py_compile <filepath>` to capture real compilation status."""
@@ -172,15 +190,19 @@ def extract_branch_name(transcript: str) -> str:
     t = transcript.strip()
     m = re.search(r'(?:create|make|checkout|switch to|new)\s+branch\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
     if m:
-        return m.group(1).strip()
+        val = m.group(1).strip()
+        if val.lower() not in ["and", "to", "called", "named", "am", "i", "on", "current", "the"]:
+            return val
     m2 = re.search(r'branch\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
     if m2:
         val = m2.group(1).strip()
-        if val.lower() not in ["and", "to", "called", "named"]:
+        if val.lower() not in ["and", "to", "called", "named", "am", "i", "on", "current", "the"]:
             return val
     m3 = re.search(r'(?:called|named)\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
     if m3:
-        return m3.group(1).strip()
+        val = m3.group(1).strip()
+        if val.lower() not in ["and", "to", "called", "named", "am", "i", "on", "current", "the"]:
+            return val
     return "feature-branch"
 
 def extract_target_file(transcript: str) -> str:
@@ -251,11 +273,23 @@ Rules:
   - Use the codebase digest above to give an accurate, crisp, 2-sentence conversational answer.
   - command: "", action: "", target_file: "", speaking_start: "", speaking_progress: ""
 - For "git_action":
-  - For branch creation (e.g. "create branch feature"):
+  - For checking last commit or commit history (e.g. "What was the last commit?", "Show git log", "recent commits"):
+    command: cd "{PROJECT_ROOT}" && git log -1
+    speaking_start: "Executing task: retrieving the last commit, sir."
+    speaking_response: "Retrieving commit history, sir."
+  - For checking status (e.g. "git status", "check status"):
+    command: cd "{PROJECT_ROOT}" && git status
+    speaking_start: "Executing task: checking repository status, sir."
+    speaking_response: "Inspecting repository status, sir."
+  - For checking current branch or listing branches (e.g. "what branch am I on", "list branches"):
+    command: cd "{PROJECT_ROOT}" && git branch --show-current
+    speaking_start: "Executing task: checking current branch, sir."
+    speaking_response: "Checking branch, sir."
+  - For branch creation (e.g. "create branch feature", "new branch test"):
     command: cd "{PROJECT_ROOT}" && (git checkout -b <branch> 2>nul || git checkout <branch>) && git push -u origin <branch>
     speaking_start: "Creating and pushing branch <branch> to GitHub, sir."
     speaking_response: "Branch <branch> has been created and pushed to GitHub, sir."
-  - For commit and push:
+  - For commit and push (ONLY when user explicitly requests to commit, push, or save changes):
     command: cd "{PROJECT_ROOT}" && git init && git add . && (git commit -m "<msg>" || echo "No changes to commit") && (git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)
     speaking_start: "Executing task: committing and pushing your changes, sir."
     speaking_response: "Task completed successfully, sir."
@@ -328,7 +362,20 @@ def build_default_intent(transcript: str) -> dict:
             "speaking_response": speaking_response,
         }
 
-    # 2. Branch Creation & Push Intent (Strict command: git checkout -b <branch> && git push -u origin <branch>)
+    # 2. Branch Inspection Query (e.g. 'What branch am I on?', 'Check git branch')
+    if is_branch_query(transcript):
+        return {
+            "type": "git_action",
+            "action": "check_branch",
+            "target_file": "",
+            "task_description": "Check current git branch",
+            "command": f'{cd_prefix} && git branch',
+            "speaking_start": "Checking git branch, sir.",
+            "speaking_progress": "",
+            "speaking_response": "Task completed, sir.",
+        }
+
+    # 3. Branch Creation & Push Intent (Strict command: git checkout -b <branch> && git push -u origin <branch>)
     if is_branch_creation(transcript):
         bname = extract_branch_name(transcript)
         return {
@@ -344,7 +391,33 @@ def build_default_intent(transcript: str) -> dict:
             "speaking_response": f"Branch {bname} has been created and pushed to GitHub, sir.",
         }
 
-    # 2. Git Action Intent
+    # 4. Git Log / Commit History Query (e.g. 'What was the last commit?', 'git log')
+    if is_git_log_query(transcript):
+        return {
+            "type": "git_action",
+            "action": "git_log",
+            "target_file": "",
+            "task_description": "Retrieve last commit details",
+            "command": f'{cd_prefix} && git log -1',
+            "speaking_start": "Executing task: retrieving the last commit, sir.",
+            "speaking_progress": "",
+            "speaking_response": "Retrieving commit history, sir.",
+        }
+
+    # 5. Git Status Query (e.g. 'git status', 'check status')
+    if is_git_status_query(transcript):
+        return {
+            "type": "git_action",
+            "action": "git_status",
+            "target_file": "",
+            "task_description": "Git status check",
+            "command": f'{cd_prefix} && git status',
+            "speaking_start": "Executing task: checking git status, sir.",
+            "speaking_progress": "",
+            "speaking_response": "Inspecting repository status, sir.",
+        }
+
+    # 6. Commit and Push Intent (ONLY when user explicitly requests pushing or saving changes)
     if any(w in t for w in ["push", "commit", "repo", "github"]):
         return {
             "type": "git_action",
@@ -357,17 +430,6 @@ def build_default_intent(transcript: str) -> dict:
                 f'(git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)'
             ),
             "speaking_start": "Executing task: committing and pushing changes, sir.",
-            "speaking_progress": "",
-            "speaking_response": "Task completed successfully, sir.",
-        }
-    elif any(w in t for w in ["status", "changes"]):
-        return {
-            "type": "git_action",
-            "action": "",
-            "target_file": "",
-            "task_description": "Git status check",
-            "command": f'{cd_prefix} && git status',
-            "speaking_start": "Executing task: checking git status, sir.",
             "speaking_progress": "",
             "speaking_response": "Task completed successfully, sir.",
         }
@@ -493,12 +555,38 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
         if is_branch_creation(transcript):
             bname = extract_branch_name(transcript)
             cmd = f'{cd_prefix} && git checkout -b {bname} && git push -u origin {bname}'
-            start = f"Creating and pushing branch {bname} to GitHub, sir."
-            speaking_resp = f"Branch {bname} has been created and pushed to GitHub, sir."
+            if not start:
+                start = f"Creating and pushing branch {bname} to GitHub, sir."
+            if not speaking_resp:
+                speaking_resp = f"Branch {bname} has been created and pushed to GitHub, sir."
+        elif is_git_log_query(transcript):
+            cmd = f'{cd_prefix} && git log -1'
+            if not start:
+                start = "Executing task: retrieving the last commit, sir."
+            if not speaking_resp or speaking_resp.startswith("Task completed"):
+                speaking_resp = "Retrieving commit history, sir."
+        elif is_branch_query(transcript):
+            cmd = f'{cd_prefix} && git branch'
+            if not start:
+                start = "Executing task: checking current branch, sir."
+            if not speaking_resp or speaking_resp.startswith("Task completed"):
+                speaking_resp = "Checking current branch, sir."
+        elif is_git_status_query(transcript):
+            cmd = f'{cd_prefix} && git status'
+            if not start:
+                start = "Executing task: checking git status, sir."
+            if not speaking_resp or speaking_resp.startswith("Task completed"):
+                speaking_resp = "Inspecting repository status, sir."
         elif not cmd.startswith("cd "):
             cmd = f'{cd_prefix} && {cmd}' if cmd else f'{cd_prefix} && git status'
 
-    start = clean_spoken_text(str(data.get("speaking_start", "")))
+    llm_start = clean_spoken_text(str(data.get("speaking_start", "")))
+    llm_resp = clean_spoken_text(str(data.get("speaking_response", "")))
+    if llm_start:
+        start = llm_start
+    if llm_resp:
+        speaking_resp = llm_resp
+
     prog = clean_spoken_text(str(data.get("speaking_progress", "")))
 
     return {
@@ -517,10 +605,9 @@ def call_groq(transcript: str) -> dict:
         raise ValueError("GROQ_API_KEY not configured.")
 
     models = [
-        "qwen/qwen3.8-27b",
-        "llama-3.3-70b-versatile",
-        "qwen-2.5-32b",
         "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
     ]
 
     headers = {
@@ -543,7 +630,7 @@ def call_groq(transcript: str) -> dict:
                         {"role": "user", "content": f"User: {transcript}"},
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 150,
+                    "max_tokens": 600,
                 },
                 timeout=10,
             )
@@ -585,14 +672,6 @@ def route_intent(transcript: str) -> dict:
     if not cleaned or len(cleaned) < 2:
         return build_default_intent(cleaned)
 
-    # IMMEDIATE ROUTING: Antigravity task regex/classifier match routes immediately and prevents fallback to GENERAL_QA
-    if is_antigravity_intent(cleaned):
-        return build_default_intent(cleaned)
-
-    # IMMEDIATE ROUTING: Git branch creation & remote push
-    if is_branch_creation(cleaned):
-        return build_default_intent(cleaned)
-
     # 1. Primary: Groq Cloud API
     try:
         return call_groq(cleaned)
@@ -612,8 +691,12 @@ def main():
     transcript = ""
     if len(sys.argv) > 1:
         transcript = " ".join(sys.argv[1:]).strip()
-
-    if not transcript and os.path.exists(TRANSCRIPT_CACHE_FILE):
+        try:
+            with open(TRANSCRIPT_CACHE_FILE, "w", encoding="utf-8") as f:
+                f.write(transcript)
+        except Exception:
+            pass
+    elif os.path.exists(TRANSCRIPT_CACHE_FILE):
         try:
             with open(TRANSCRIPT_CACHE_FILE, "r", encoding="utf-8") as f:
                 transcript = f.read().strip()

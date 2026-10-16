@@ -90,10 +90,37 @@ def main():
                 pass
             sys.exit(proc.returncode)
 
-        # Execution succeeded
+        # Execution succeeded: Dynamically generate natural AI voice response from command output
+        transcript = ""
+        tr_path = os.path.join(PROJECT_ROOT, "last_transcript.txt")
+        if os.path.exists(tr_path):
+            try:
+                with open(tr_path, "r", encoding="utf-8") as tf:
+                    transcript = tf.read().strip()
+            except Exception:
+                pass
+        if not transcript:
+            transcript = data.get("task_description", command)
+
+        try:
+            from llm_client import summarize_command_execution
+            resp_text = summarize_command_execution(transcript, command, proc.stdout, proc.stderr)
+        except Exception:
+            resp_text = data.get("speaking_response", "Git action completed successfully, sir.")
+
+        try:
+            if os.path.exists(intent_file):
+                with open(intent_file, "r", encoding="utf-8") as inf:
+                    idat = json.load(inf)
+                idat["speaking_response"] = resp_text
+                with open(intent_file, "w", encoding="utf-8") as inf:
+                    json.dump(idat, inf, indent=2)
+        except Exception:
+            pass
+
         try:
             with open(status_file, "w", encoding="utf-8") as f:
-                f.write(f"[GIT SUCCESS] {data.get('speaking_response', 'Git action completed.')}")
+                f.write(f"[GIT SUCCESS] {resp_text}")
         except Exception:
             pass
         sys.exit(0)

@@ -2,8 +2,8 @@
   "type": "git_action",
   "action": "",
   "target_file": "",
-  "task_description": "Push all codes to GitHub",
-  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"Push all codes\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)",
+  "task_description": "",
+  "command": "cd \"C:\\Users\\gansk\\OneDrive\\Desktop\\Jarvis github\" && git init && git add . && (git commit -m \"Push core changes\") && (git push || gh repo create \"Jarvis-Voice-Assistant\" --public --source=. --remote=origin --push)",
   "speaking_start": "Executing task: committing and pushing your changes, sir.",
   "speaking_progress": "",
   "speaking_response": "Task completed successfully, sir."
